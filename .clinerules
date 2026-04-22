@@ -1,0 +1,39 @@
+# LLM Serving Platform — Cline Context
+
+## Project Overview
+You are helping Guo Li build a **Mini LLM Serving Platform** — a production-grade model serving system with streaming inference, dynamic request batching, rate limiting, and autoscaling on AWS.
+
+## Current Phase
+Check .ai/BUILD_GUIDE.md for the current milestone, specs, and definition of done.
+
+## Architecture Decisions
+Check .ai/ARCHITECTURE.md for system design decisions and rationale.
+
+## Code Review Feedback
+Check .ai/CODE_REVIEW.md for past feedback — avoid repeating the same issues.
+
+## Code Standards
+- Production quality: error handling, type hints, docstrings on all public functions
+- Framework: FastAPI + pydantic-settings, 12-factor config (env-driven)
+- Testing: pytest + httpx for async test client
+- Linting: ruff
+- Logging: structured JSON logging with correlation IDs
+- No toy code: every endpoint needs validation, error responses, proper HTTP status codes
+
+## Tech Stack
+- Python 3.11+, FastAPI, HuggingFace Transformers, PyTorch
+- Redis (batching queue, rate limiting)
+- AWS: ECS Fargate, ALB, CloudWatch, ElastiCache, S3, ECR
+- Docker (multi-stage builds)
+
+## Project Structure
+src/llm_serving/
+├── main.py # FastAPI app + lifespan
+├── config.py # pydantic-settings
+├── models/loader.py # Model loading singleton
+├── api/router.py # API routes
+├── api/schemas.py # Pydantic request/response models
+├── core/inference.py # Inference logic
+├── core/batching.py # Dynamic batching (milestone 3)
+├── core/rate_limiter.py # Token bucket rate
+└── core/streaming.py # SSE streaming (milestone 2)
