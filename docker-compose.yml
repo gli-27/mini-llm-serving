@@ -1,0 +1,32 @@
+version: "3.9"
+
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - MODEL_NAME=TinyLlama/TinyLlama-1.1B-Chat-v1.0
+      - LOG_LEVEL=debug
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - model-cache:/home/appuser/.cache/huggingface
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - redis-data:/data
+
+volumes:
+  model-cache:
+  redis-data:
