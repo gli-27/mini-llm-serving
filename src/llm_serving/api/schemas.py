@@ -1,0 +1,98 @@
+"""Pydantic request/response models for the LLM serving API."""
+
+from pydantic import BaseModel, Field
+
+
+class CompletionRequest(BaseModel):
+    """Request body for the /v1/completions endpoint.
+
+    Attributes:
+        prompt: The input text prompt for generation. Must be 1–4096 characters.
+        max_tokens: Maximum number of tokens to generate. Must be 1–2048.
+        temperature: Sampling temperature. Must be 0.0–2.0.
+    """
+
+    prompt: str = Field(
+        ...,
+        min_length=1,
+        max_length=4096,
+        description="Input text prompt for generation.",
+    )
+    max_tokens: int = Field(
+        default=256,
+        ge=1,
+        le=2048,
+        description="Maximum number of tokens to generate.",
+    )
+    temperature: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=2.0,
+        description="Sampling temperature.",
+    )
+
+
+class UsageInfo(BaseModel):
+    """Token usage statistics for a completion response.
+
+    Attributes:
+        prompt_tokens: Number of tokens in the input prompt.
+        completion_tokens: Number of tokens in the generated completion.
+        total_tokens: Total tokens (prompt + completion).
+    """
+
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+
+
+class CompletionResponse(BaseModel):
+    """Response body for the /v1/completions endpoint.
+
+    Attributes:
+        id: Unique completion identifier (cmpl-<8hex>).
+        object: Object type, always "text_completion".
+        model: Name of the model used for generation.
+        content: The generated text content.
+        usage: Token usage statistics.
+    """
+
+    id: str
+    object: str = "text_completion"
+    model: str
+    content: str
+    usage: UsageInfo
+
+
+class HealthResponse(BaseModel):
+    """Response body for the /health endpoint.
+
+    Attributes:
+        status: Health status string ("healthy" or "unhealthy").
+        model: Name of the loaded model, if any.
+    """
+
+    status: str
+    model: str | None = None
+
+
+class ModelInfo(BaseModel):
+    """Information about a loaded model.
+
+    Attributes:
+        id: Model identifier (HuggingFace model name).
+        ready: Whether the model is loaded and ready for inference.
+    """
+
+    id: str
+    ready: bool
+
+
+class ModelsResponse(BaseModel):
+    """Response body for the /v1/models endpoint.
+
+    Attributes:
+        models: List of available models with their status.
+    """
+
+    models: list[ModelInfo]
