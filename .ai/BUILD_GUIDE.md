@@ -1,40 +1,73 @@
-# Current Build Guide — Milestone 1: Project Scaffold + Model Loading
+# Current Build Guide — Milestone 2: SSE Streaming
 
 Status: IN PROGRESS
 
 ## Objective
-Build the foundation: FastAPI app skeleton, model loading, and a sync /v1/completions endpoint.
+Add token-by-token streaming via Server-Sent Events (SSE) to the /v1/completions endpoint.
 
-## Endpoints
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | /health | Returns {"status": "healthy", "model": "<name>"} |
-| POST | /v1/completions | Sync text generation |
-| GET | /v1/models | List loaded models |
+## What Changed from Milestone 1
+- Added `stream: bool = False` to CompletionRequest
+- New `StreamChunk` schema for SSE events
+- New `core/streaming.py` — TextIteratorStreamer + background thread
+- Router branches: `stream=false` → sync response, `stream=true` → SSE StreamingResponse
+- Client disconnect detection via `request.is_disconnected()`
 
-## POST /v1/completions Request
-{"prompt": "string 1-4096 chars required", "max_tokens": "int 1-2048 default 256", "temperature": "float 0.0-2.0 default 0.7"}
+## SSE Format
+Each token is sent as:
+```
+data: {"id":"cmpl-<8hex>","object":"text_completion.chunk","model":"<name>","content":"<token>"}\n\n
+```
 
-## POST /v1/completions Response
-{"id": "cmpl-<8hex>", "object": "text_completion", "model": "TinyLlama/TinyLlama-1.1B-Chat-v1.0", "content": "generated text", "usage": {"prompt_tokens": 10, "completion_tokens": 50, "total_tokens": 60}}
+End-of-stream sentinel:
+```
+data: [DONE]\n\n
+```
 
-## Config (env vars, LLM_ prefix via pydantic-settings)
-- LLM_MODEL_NAME = TinyLlama/TinyLlama-1.1B-Chat-v1.0
-- LLM_DEVICE = cpu
-- LLM_MAX_NEW_TOKENS = 256
-- LLM_HOST = 0.0.0.0
-- LLM_PORT = 8000
+## Streaming Headers
+- Content-Type: text/event-stream
+- Cache-Control: no-cache
+- Connection: keep-alive
+- X-Accel-Buffering: no (for nginx/ALB proxy)
 
-## Key Design Decisions
-1. Model loads at startup via FastAPI lifespan — no requests until ready
-2. Singleton ModelManager — load once, share across requests
-3. pad_token fallback to eos_token (TinyLlama needs this)
-4. All config from env vars, never hardcoded
+## How It Works
+1. Request arrives with `stream: true`
+2. Router creates a `StreamingResponse` with an async generator
+3. `generate_stream()` tokenizes the prompt, creates a `TextIteratorStreamer`
+4. `model.generate()` runs in a background thread (daemon)
+5. Main thread yields tokens from the streamer as SSE events
+6. On client disconnect, generator exits early
+7. `data: [DONE]` sentinel sent at the end
+
+## Testing
+```bash
+# Streaming with curl
+curl -N -X POST http://localhost:8000/v1/completions \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Hello, how are you?", "max_tokens": 50, "stream": true}'
+
+# Non-streaming (still works)
+curl -X POST http://localhost:8000/v1/completions \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Hello, how are you?", "max_tokens": 50}'
+```
+
+## Error Format (OpenAI-compatible)
+```json
+{"error": {"message": "...", "type": "server_error", "code": 503}}
+```
 
 ## Definition of Done
-- GET /health returns 200 + model name
-- POST /v1/completions returns generated text + usage stats
-- GET /v1/models returns model list
-- Model loads once at startup (verify in logs)
-- Request validation works (empty prompt -> 422)
-- All code has type hints
+- `stream: false` still returns full CompletionResponse (backward compatible)
+- `stream: true` streams tokens one-by-one via SSE
+- SSE format: `data: {json}\n\n` per token, `data: [DONE]\n\n` sentinel
+- Client disconnect detected and logged
+- Errors sent as SSE events in OpenAI error format
+- StreamingResponse headers set correctly
+- All code has type hints and docstrings
+
+## Previous Milestones
+### Milestone 1: Project Scaffold + Model Loading — COMPLETE
+- FastAPI app skeleton, model loading, sync /v1/completions endpoint
+- GET /health, POST /v1/completions, GET /v1/models
+- Pydantic settings with LLM_ prefix
+- Singleton ModelManager loaded at startup via lifespan

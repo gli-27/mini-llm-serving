@@ -10,6 +10,7 @@ class CompletionRequest(BaseModel):
         prompt: The input text prompt for generation. Must be 1–4096 characters.
         max_tokens: Maximum number of tokens to generate. Must be 1–2048.
         temperature: Sampling temperature. Must be 0.0–2.0.
+        stream: Whether to stream the response token-by-token via SSE.
     """
 
     prompt: str = Field(
@@ -29,6 +30,10 @@ class CompletionRequest(BaseModel):
         ge=0.0,
         le=2.0,
         description="Sampling temperature.",
+    )
+    stream: bool = Field(
+        default=False,
+        description="Stream the response token-by-token via SSE.",
     )
 
 
@@ -86,6 +91,22 @@ class ModelInfo(BaseModel):
 
     id: str
     ready: bool
+
+
+class StreamChunk(BaseModel):
+    """A single SSE chunk in a streaming completion response.
+
+    Attributes:
+        id: Unique completion identifier (shared across all chunks).
+        object: Object type, always "text_completion.chunk".
+        model: Name of the model used for generation.
+        content: The token text for this chunk.
+    """
+
+    id: str
+    object: str = "text_completion.chunk"
+    model: str
+    content: str
 
 
 class ModelsResponse(BaseModel):
