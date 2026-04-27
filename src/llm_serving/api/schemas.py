@@ -35,6 +35,10 @@ class CompletionRequest(BaseModel):
         default=False,
         description="Stream the response token-by-token via SSE.",
     )
+    seed: int | None = Field(
+        default=None,
+        description="Random seed for reproducible generation. If None, results are non-deterministic.",
+    )
 
 
 class UsageInfo(BaseModel):

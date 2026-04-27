@@ -19,6 +19,8 @@ class Settings(BaseSettings):
         model_name: HuggingFace model identifier to load.
         device: PyTorch device for inference (``cpu`` or ``cuda``).
         max_new_tokens: Maximum number of tokens to generate per request.
+        generation_timeout_s: Max seconds for a single generation before timeout.
+        max_concurrent_requests: Max concurrent inference requests (prevents GPU OOM).
         host: Host address to bind the server to.
         port: Port number to bind the server to.
         log_level: Logging level (debug, info, warning, error, critical).
@@ -27,6 +29,8 @@ class Settings(BaseSettings):
     model_name: str = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
     device: str = "cpu"
     max_new_tokens: int = 256
+    generation_timeout_s: float = 60.0
+    max_concurrent_requests: int = 1
     host: str = "0.0.0.0"
     port: int = 8000
     log_level: str = "info"

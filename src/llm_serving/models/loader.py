@@ -9,12 +9,9 @@ import logging
 from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel, PreTrainedTokenizer
 
 from llm_serving.config import Settings
+from llm_serving.exceptions import ModelNotLoadedError  # noqa: F401 (re-exported)
 
 logger = logging.getLogger(__name__)
-
-
-class ModelNotLoadedError(RuntimeError):
-    """Raised when inference is attempted before the model is loaded."""
 
 
 class ModelManager:

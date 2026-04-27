@@ -12,7 +12,8 @@ from collections.abc import Generator
 import torch
 from transformers import TextIteratorStreamer
 
-from llm_serving.models.loader import ModelManager, ModelNotLoadedError
+from llm_serving.exceptions import ModelNotLoadedError
+from llm_serving.models.loader import ModelManager
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,8 @@ def generate_stream(
     model_manager: ModelManager,
     prompt: str,
     max_new_tokens: int,
+    temperature: float = 0.7,
+    seed: int | None = None,
 ) -> Generator[str, None, None]:
     """Generate text token-by-token as a streaming generator.
 
@@ -28,16 +31,22 @@ def generate_stream(
     generated. The model.generate() call runs in a background thread so
     the main thread can yield tokens to the SSE response as they arrive.
 
+    If the background thread raises an exception (OOM, CUDA error, etc.),
+    it is re-raised in the main thread after the streamer drains.
+
     Args:
         model_manager: The ModelManager holding the loaded model and tokenizer.
         prompt: The input text prompt.
         max_new_tokens: Maximum number of new tokens to generate.
+        temperature: Sampling temperature. Higher = more random, lower = more deterministic.
+        seed: Optional random seed for reproducible generation.
 
     Yields:
         Individual token strings as they are generated.
 
     Raises:
         ModelNotLoadedError: If the model has not been loaded yet.
+        RuntimeError: If the background generation thread fails.
     """
     if not model_manager.is_loaded:
         raise ModelNotLoadedError(
@@ -55,11 +64,15 @@ def generate_stream(
     inputs = tokenizer(prompt, return_tensors="pt")
     input_ids = inputs["input_ids"].to(device)
 
-    # Create a streamer that yields tokens one-by-one
+    # Create a streamer that yields tokens one-by-one.
+    # timeout ensures the main thread doesn't hang forever if the
+    # background thread dies — it will raise queue.Empty after timeout.
+    timeout_s = model_manager.settings.generation_timeout_s
     streamer = TextIteratorStreamer(
         tokenizer,
         skip_prompt=True,
         skip_special_tokens=True,
+        timeout=timeout_s,
     )
 
     # Generation kwargs for the background thread
@@ -67,39 +80,76 @@ def generate_stream(
         "input_ids": input_ids,
         "max_new_tokens": max_new_tokens,
         "do_sample": True,
+        "temperature": temperature,
         "pad_token_id": tokenizer.pad_token_id,
         "streamer": streamer,
     }
 
+    # Mutable container to capture exceptions from the background thread.
+    # A list works because threads share the same process memory — the
+    # background thread appends to it, the main thread reads from it.
+    # Set seed before spawning the generation thread for reproducibility.
+    # Must be set in the main thread before thread.start() since the
+    # background thread inherits the RNG state.
+    if seed is not None:
+        torch.manual_seed(seed)
+
+    errors: list[BaseException] = []
+
     # Run model.generate() in a background thread — it blocks until done,
-    # but the streamer yields tokens to our main thread as they're produced
+    # but the streamer yields tokens to our main thread as they're produced.
     thread = threading.Thread(
         target=_generate_in_thread,
-        args=(model, generation_kwargs),
+        args=(model, generation_kwargs, errors),
         daemon=True,
     )
     thread.start()
 
     # Yield tokens as they arrive from the streamer
     token_count = 0
-    for token_text in streamer:
-        if token_text:
-            token_count += 1
-            yield token_text
+    try:
+        for token_text in streamer:
+            if token_text:
+                token_count += 1
+                yield token_text
+    except Exception:
+        # TextIteratorStreamer raises queue.Empty on timeout —
+        # check if the background thread died
+        if errors:
+            raise RuntimeError(
+                f"Generation failed in background thread: {errors[0]}"
+            ) from errors[0]
+        raise
 
-    thread.join()
+    thread.join(timeout=5.0)
+
+    # Check if the background thread raised after streamer finished normally
+    if errors:
+        raise RuntimeError(
+            f"Generation failed in background thread: {errors[0]}"
+        ) from errors[0]
+
     logger.info("Streamed %d tokens", token_count)
 
 
 def _generate_in_thread(
     model: torch.nn.Module,
     generation_kwargs: dict[str, object],
+    errors: list[BaseException],
 ) -> None:
     """Run model.generate() in a background thread.
+
+    If an exception occurs (OOM, CUDA error, etc.), it is captured into
+    the ``errors`` list so the main thread can detect and re-raise it.
 
     Args:
         model: The loaded language model.
         generation_kwargs: Keyword arguments for model.generate().
+        errors: Mutable list to store any exception from this thread.
     """
-    with torch.no_grad():
-        model.generate(**generation_kwargs)
+    try:
+        with torch.no_grad():
+            model.generate(**generation_kwargs)
+    except BaseException as exc:
+        logger.exception("Background generation thread failed: %s", exc)
+        errors.append(exc)

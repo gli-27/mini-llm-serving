@@ -3,6 +3,7 @@
 import logging
 import time
 from collections.abc import AsyncGenerator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -19,9 +20,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Manage application startup and shutdown.
 
     On startup: loads settings, creates ModelManager, loads the model,
-    and stores the manager in app.state for dependency injection.
+    and creates a ThreadPoolExecutor for inference concurrency control.
 
-    On shutdown: logs a shutdown message.
+    On shutdown: shuts down the executor and logs a message.
     """
     settings = get_settings()
 
@@ -41,10 +42,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     elapsed = time.perf_counter() - start
     logger.info("Model loaded in %.2fs", elapsed)
 
+    # ThreadPoolExecutor for inference — solves three problems at once:
+    # 1. Concurrency control (max_workers limits parallel inference)
+    # 2. Non-blocking (sync generate() runs in thread, doesn't block event loop)
+    # 3. Timeout support (via asyncio.wait_for wrapping run_in_executor)
+    inference_executor = ThreadPoolExecutor(
+        max_workers=settings.max_concurrent_requests,
+        thread_name_prefix="inference",
+    )
+    logger.info("Inference thread pool: max_workers=%d", settings.max_concurrent_requests)
+
     app.state.model_manager = model_manager
+    app.state.inference_executor = inference_executor
 
     yield
 
+    inference_executor.shutdown(wait=False)
     logger.info("Shutting down LLM Serving Platform")
 
 
