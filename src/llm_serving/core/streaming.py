@@ -5,7 +5,6 @@ one-by-one via a TextIteratorStreamer, enabling Server-Sent Events
 streaming to the client.
 """
 
-import logging
 import threading
 from collections.abc import Generator
 
@@ -13,9 +12,10 @@ import torch
 from transformers import TextIteratorStreamer
 
 from llm_serving.exceptions import ModelNotLoadedError
+from llm_serving.logging import get_logger
 from llm_serving.models.loader import ModelManager
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def generate_stream(
@@ -88,19 +88,17 @@ def generate_stream(
     # Mutable container to capture exceptions from the background thread.
     # A list works because threads share the same process memory — the
     # background thread appends to it, the main thread reads from it.
-    # Set seed before spawning the generation thread for reproducibility.
-    # Must be set in the main thread before thread.start() since the
-    # background thread inherits the RNG state.
-    if seed is not None:
-        torch.manual_seed(seed)
-
     errors: list[BaseException] = []
 
     # Run model.generate() in a background thread — it blocks until done,
     # but the streamer yields tokens to our main thread as they're produced.
+    # NOTE: The seed is passed to _generate_in_thread and set INSIDE the
+    # background thread because PyTorch's CPU RNG state is thread-local.
+    # Setting torch.manual_seed() in the main thread would NOT affect the
+    # RNG used by model.generate() in the background thread.
     thread = threading.Thread(
         target=_generate_in_thread,
-        args=(model, generation_kwargs, errors),
+        args=(model, generation_kwargs, errors, seed),
         daemon=True,
     )
     thread.start()
@@ -136,18 +134,24 @@ def _generate_in_thread(
     model: torch.nn.Module,
     generation_kwargs: dict[str, object],
     errors: list[BaseException],
+    seed: int | None = None,
 ) -> None:
     """Run model.generate() in a background thread.
 
-    If an exception occurs (OOM, CUDA error, etc.), it is captured into
-    the ``errors`` list so the main thread can detect and re-raise it.
+    Sets the RNG seed inside this thread (not the caller) because
+    PyTorch's CPU RNG state is thread-local. If an exception occurs
+    (OOM, CUDA error, etc.), it is captured into the ``errors`` list
+    so the main thread can detect and re-raise it.
 
     Args:
         model: The loaded language model.
         generation_kwargs: Keyword arguments for model.generate().
         errors: Mutable list to store any exception from this thread.
+        seed: Optional random seed for reproducible generation.
     """
     try:
+        if seed is not None:
+            torch.manual_seed(seed)
         with torch.no_grad():
             model.generate(**generation_kwargs)
     except BaseException as exc:

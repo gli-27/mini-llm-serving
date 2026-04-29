@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     For example, ``LLM_MODEL_NAME`` maps to ``model_name``.
 
     Attributes:
+        app_env: Application environment (development, staging, production).
         model_name: HuggingFace model identifier to load.
         device: PyTorch device for inference (``cpu`` or ``cuda``).
         max_new_tokens: Maximum number of tokens to generate per request.
@@ -26,6 +27,7 @@ class Settings(BaseSettings):
         log_level: Logging level (debug, info, warning, error, critical).
     """
 
+    app_env: str = "development"
     model_name: str = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
     device: str = "cpu"
     max_new_tokens: int = 256

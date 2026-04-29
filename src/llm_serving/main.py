@@ -1,6 +1,5 @@
 """FastAPI application entrypoint with lifespan-managed model loading."""
 
-import logging
 import time
 from collections.abc import AsyncGenerator
 from concurrent.futures import ThreadPoolExecutor
@@ -10,30 +9,30 @@ from fastapi import FastAPI
 
 from llm_serving.api.router import router
 from llm_serving.config import get_settings
+from llm_serving.logging import get_logger, setup_logging
 from llm_serving.models.loader import ModelManager
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Manage application startup and shutdown.
 
-    On startup: loads settings, creates ModelManager, loads the model,
-    and creates a ThreadPoolExecutor for inference concurrency control.
+    On startup: configures structured logging, loads settings, creates
+    ModelManager, loads the model, and creates a ThreadPoolExecutor for
+    inference concurrency control.
 
     On shutdown: shuts down the executor and logs a message.
     """
     settings = get_settings()
 
-    # Configure logging
-    logging.basicConfig(
-        level=getattr(logging, settings.log_level.upper(), logging.INFO),
-        format="%(asctime)s %(levelname)s %(name)s — %(message)s",
-    )
+    # Configure structured logging (JSON in production, console in dev)
+    json_format = settings.app_env != "development"
+    setup_logging(log_level=settings.log_level, json_format=json_format)
 
     logger.info("Starting LLM Serving Platform")
-    logger.info("Settings: %s", settings.model_dump_json())
+    logger.info("Settings loaded", settings=settings.model_dump())
 
     # Load model
     model_manager = ModelManager(settings)

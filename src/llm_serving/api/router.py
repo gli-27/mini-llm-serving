@@ -3,7 +3,6 @@
 import asyncio
 import functools
 import json
-import logging
 import uuid
 from collections.abc import AsyncGenerator
 from concurrent.futures import ThreadPoolExecutor
@@ -23,9 +22,10 @@ from llm_serving.api.schemas import (
 from llm_serving.core.inference import generate
 from llm_serving.core.streaming import generate_stream
 from llm_serving.exceptions import ModelNotLoadedError
+from llm_serving.logging import get_logger
 from llm_serving.models.loader import ModelManager
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 router = APIRouter()
 

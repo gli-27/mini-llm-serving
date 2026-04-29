@@ -8,14 +8,13 @@ designed to be called via ``run_in_executor()`` from the async router
 so they don't block the event loop.
 """
 
-import logging
-
 import torch
 
 from llm_serving.exceptions import ModelNotLoadedError
+from llm_serving.logging import get_logger
 from llm_serving.models.loader import ModelManager
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def generate(

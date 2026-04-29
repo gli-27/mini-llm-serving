@@ -1,6 +1,6 @@
 # Current Build Guide — Milestone 2: SSE Streaming
 
-Status: IN PROGRESS
+Status: COMPLETE
 
 ## Objective
 Add token-by-token streaming via Server-Sent Events (SSE) to the /v1/completions endpoint.

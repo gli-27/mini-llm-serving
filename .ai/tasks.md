@@ -1,19 +1,29 @@
 # Implementation Tasks
 
-## Phase 1: Core API (Milestone 1)
-- [ ] `config.py` — Pydantic Settings with LLM_ prefix, env var loading
-- [ ] `models/loader.py` — Load TinyLlama model + tokenizer, singleton ModelManager
-- [ ] `api/schemas.py` — Request/response Pydantic models (CompletionRequest, CompletionResponse, Usage)
-- [ ] `api/router.py` — `/v1/completions` (POST), `/health` (GET), `/v1/models` (GET)
-- [ ] `main.py` — FastAPI app with lifespan, CORS, error handlers
-- [ ] `core/inference.py` — Single-request inference logic
+## Phase 1: Core API (Milestone 1) — COMPLETE
+- [x] `config.py` — Pydantic Settings with LLM_ prefix, env var loading
+- [x] `models/loader.py` — Load TinyLlama model + tokenizer, singleton ModelManager
+- [x] `api/schemas.py` — Request/response Pydantic models (CompletionRequest, CompletionResponse, Usage)
+- [x] `api/router.py` — `/v1/completions` (POST), `/health` (GET), `/v1/models` (GET)
+- [x] `main.py` — FastAPI app with lifespan, error handlers
+- [x] `core/inference.py` — Single-request inference logic
+- [x] `exceptions.py` — Centralized exception classes (ModelNotLoadedError, GenerationTimeoutError)
 
-## Phase 2: SSE Streaming (Milestone 2)
-- [ ] `core/streaming.py` — Token-by-token streaming via SSE (sse-starlette)
-- [ ] `api/schemas.py` — Add `stream: bool` field to CompletionRequest
-- [ ] `api/router.py` — StreamingResponse path when `stream=true`
+## Phase 2: SSE Streaming (Milestone 2) — COMPLETE
+- [x] `core/streaming.py` — Token-by-token streaming via TextIteratorStreamer + background thread
+- [x] `api/schemas.py` — Add `stream: bool` field to CompletionRequest, `StreamChunk` model
+- [x] `api/router.py` — StreamingResponse path when `stream=true`, SSE format, client disconnect detection
+- [x] Seed thread safety — `torch.manual_seed()` set inside background thread (PyTorch RNG is thread-local)
+
+## Phase 2.5: Quality Gaps — COMPLETE
+- [x] Structured logging — Replaced stdlib `logging` with `structlog` across all modules (`logging.py`)
+- [x] `app_env` config field — Controls JSON (production) vs console (development) log rendering
+- [x] Test suite — `conftest.py`, `test_config.py`, `test_loader.py`, `test_inference.py`, `test_streaming.py`, `test_api.py`, `test_logging.py`
+- [x] Dockerfile — Multi-stage build, non-root user, healthcheck
+- [x] docker-compose — API + Redis services
 
 ## Phase 3: Dynamic Batching + Priority Queues (Milestone 3)
+- [ ] Redis config in Settings — `redis_url`, connection management
 - [ ] Redis request queue — push incoming requests, pop in batches
 - [ ] `core/batching.py` — Batch scheduler: collect up to MAX_BATCH_SIZE or wait MAX_WAIT_TIME_MS
 - [ ] Priority-aware scheduling — Redis sorted set or dual lists (queue:high + queue:default)
@@ -39,11 +49,11 @@
 - [ ] Graceful shutdown — drain in-flight requests before stopping
 
 ## Phase 7: Observability (Milestone 7)
-- [ ] Structured logging with structlog (JSON format, correlation IDs)
+- [x] Structured logging with structlog (JSON format)
+- [ ] Correlation ID propagation through all layers
 - [ ] OpenTelemetry tracing instrumentation
 - [ ] Prometheus metrics endpoint (`/metrics`)
 - [ ] CloudWatch metrics publishing (latency, throughput, queue depth, batch size)
-- [ ] Request ID propagation through all layers
 - [ ] `middleware/tracing.py` — Request tracing middleware
 
 ## Phase 8: Infrastructure & Deployment (Milestone 8)
@@ -56,8 +66,9 @@
 - [ ] ECR repository
 
 ## Phase 9: Testing & Benchmarks (Milestone 9)
-- [ ] Unit tests for config, schemas, loader, inference
-- [ ] Integration tests for API endpoints (sync + streaming)
+- [x] Unit tests for config, schemas, loader, inference
+- [x] Integration tests for API endpoints (sync + streaming)
+- [x] Streaming tests (token generation, seed thread safety, error handling)
 - [ ] Batching tests (concurrent requests → single batch)
 - [ ] Rate limiting tests (token bucket, priority tiers)
 - [ ] Load shedding tests (queue depth triggers)

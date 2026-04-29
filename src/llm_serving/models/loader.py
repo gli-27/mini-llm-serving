@@ -4,14 +4,13 @@ Provides a singleton ModelManager that handles loading models from HuggingFace,
 managing their state, and tracking readiness.
 """
 
-import logging
-
 from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel, PreTrainedTokenizer
 
 from llm_serving.config import Settings
 from llm_serving.exceptions import ModelNotLoadedError  # noqa: F401 (re-exported)
+from llm_serving.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class ModelManager:
