@@ -9,6 +9,7 @@ from fastapi import FastAPI
 
 from llm_serving.api.router import router
 from llm_serving.config import get_settings
+from llm_serving.core.worker import InferenceWorkerPool
 from llm_serving.logging import get_logger, setup_logging
 from llm_serving.middleware.load_shedder import LoadShedderMiddleware
 from llm_serving.middleware.rate_limit import RateLimitMiddleware
@@ -69,15 +70,26 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
     priority_queue = PriorityQueue(redis_client)
 
+    # Create and start background worker pool
+    worker_pool = InferenceWorkerPool(
+        priority_queue=priority_queue,
+        model_manager=model_manager,
+        executor=inference_executor,
+        num_workers=settings.max_concurrent_requests,
+    )
+    await worker_pool.start()
+
     app.state.model_manager = model_manager
     app.state.inference_executor = inference_executor
     app.state.redis_client = redis_client
     app.state.rate_limiter = rate_limiter
     app.state.priority_queue = priority_queue
+    app.state.worker_pool = worker_pool
     app.state.settings = settings
 
     yield
 
+    await worker_pool.stop()
     await redis_client.close()
     inference_executor.shutdown(wait=False)
     logger.info("Shutting down LLM Serving Platform")

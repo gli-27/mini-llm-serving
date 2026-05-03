@@ -21,6 +21,7 @@ from llm_serving.api.schemas import (
 )
 from llm_serving.core.inference import generate
 from llm_serving.core.streaming import generate_stream
+from llm_serving.core.worker import InferenceWorkerPool
 from llm_serving.exceptions import ModelNotLoadedError
 from llm_serving.logging import get_logger
 from llm_serving.models.loader import ModelManager
@@ -80,6 +81,18 @@ def get_priority_queue(request: Request) -> PriorityQueue:
     return request.app.state.priority_queue  # type: ignore[no-any-return]
 
 
+def get_worker_pool(request: Request) -> InferenceWorkerPool:
+    """Dependency that retrieves the InferenceWorkerPool from app state.
+
+    Args:
+        request: The incoming FastAPI request.
+
+    Returns:
+        The shared InferenceWorkerPool instance.
+    """
+    return request.app.state.worker_pool  # type: ignore[no-any-return]
+
+
 @router.get("/health", response_model=HealthResponse)
 async def health_check(
     model_manager: ModelManager = Depends(get_model_manager),
@@ -117,21 +130,18 @@ async def create_completion(
     model_manager: ModelManager = Depends(get_model_manager),
     executor: ThreadPoolExecutor = Depends(get_inference_executor),
     priority_queue: PriorityQueue = Depends(get_priority_queue),
+    worker_pool: InferenceWorkerPool = Depends(get_worker_pool),
 ) -> CompletionResponse | StreamingResponse:
     """Generate a text completion from a prompt.
 
-    If ``stream=False`` (default), returns a full CompletionResponse.
+    If ``stream=False`` (default), the request is enqueued into the
+    priority queue and processed by the background worker pool. The
+    handler awaits a Future that the worker resolves after inference.
+    CRITICAL requests are dequeued before STANDARD/BATCH.
+
     If ``stream=True``, returns a StreamingResponse with SSE-formatted
-    token chunks followed by a ``data: [DONE]`` sentinel.
-
-    The request is enqueued into the priority queue (for depth tracking
-    and future batch scheduling), then immediately dequeued for inline
-    processing in the current MVP.
-
-    Inference runs in a ThreadPoolExecutor to:
-    - Limit concurrency (max_workers prevents GPU OOM)
-    - Not block the async event loop (sync generate runs in a thread)
-    - Support timeout (asyncio.wait_for wraps run_in_executor)
+    token chunks (streaming bypasses the queue for now — the worker
+    pool handles non-streaming; streaming uses direct executor dispatch).
 
     Args:
         body: The completion request with prompt and generation parameters.
@@ -139,6 +149,7 @@ async def create_completion(
         model_manager: The injected ModelManager dependency.
         executor: The inference thread pool executor.
         priority_queue: The priority queue for request scheduling.
+        worker_pool: The background inference worker pool.
 
     Returns:
         CompletionResponse for sync, StreamingResponse for streaming.
@@ -152,12 +163,26 @@ async def create_completion(
             detail={"error": {"message": "Model not loaded", "type": "server_error", "code": 503}},
         )
 
-    # Enqueue into priority queue for depth tracking + future batch scheduling
+    # Streaming bypasses the worker pool — uses direct executor dispatch
+    # (streaming requires a token-by-token generator, not a Future-based result)
+    if body.stream:
+        return _create_streaming_response(body, request, model_manager, executor)
+
+    # Non-streaming: enqueue into priority queue → worker dequeues → resolves Future
     request_id = f"cmpl-{uuid.uuid4().hex[:8]}"
+
+    # Register the Future BEFORE enqueue so the worker finds it after ZPOPMIN
+    result_future = worker_pool.register_request(request_id)
+
     queue_depth = await priority_queue.enqueue(
         request_id=request_id,
         priority=body.priority,
-        payload={"prompt": body.prompt, "max_tokens": body.max_tokens},
+        payload={
+            "prompt": body.prompt,
+            "max_tokens": body.max_tokens,
+            "temperature": body.temperature,
+            "seed": body.seed,
+        },
     )
     logger.info(
         "Request enqueued",
@@ -166,13 +191,48 @@ async def create_completion(
         queue_depth=queue_depth,
     )
 
-    # MVP: inline processing — dequeue our own request immediately
-    await priority_queue.dequeue()
+    # Await the result from the background worker (priority-aware scheduling)
+    timeout_s = model_manager.settings.generation_timeout_s
+    try:
+        generated_text, prompt_tokens, completion_tokens = await asyncio.wait_for(
+            result_future,
+            timeout=timeout_s,
+        )
+    except asyncio.CancelledError:
+        worker_pool.cancel_request(request_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": {"message": "Request cancelled", "type": "server_error", "code": 503}},
+        )
+    except asyncio.TimeoutError:
+        worker_pool.cancel_request(request_id)
+        logger.error("Generation timed out after %.1fs", timeout_s)
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail={"error": {"message": f"Generation timed out after {timeout_s}s", "type": "timeout_error", "code": 504}},
+        )
+    except ModelNotLoadedError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": {"message": "Model not loaded", "type": "server_error", "code": 503}},
+        )
+    except Exception as exc:
+        logger.exception("Inference failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": {"message": "Inference failed", "type": "server_error", "code": 500}},
+        )
 
-    if body.stream:
-        return _create_streaming_response(body, request, model_manager, executor)
-
-    return await _create_sync_response(body, model_manager, executor)
+    return CompletionResponse(
+        id=request_id,
+        model=model_manager.settings.model_name,
+        content=generated_text,
+        usage=UsageInfo(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=prompt_tokens + completion_tokens,
+        ),
+    )
 
 
 async def _create_sync_response(

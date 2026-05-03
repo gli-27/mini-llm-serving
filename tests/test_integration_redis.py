@@ -2,6 +2,13 @@
 
 These tests use fakeredis (in-memory Redis emulator with Lua support)
 to test the actual Redis interactions without requiring a running Redis server.
+
+NOTE: These are **unit-level** integration tests. While fakeredis supports
+EVALSHA and Lua scripting, its behavior may differ subtly from real Redis
+(e.g., floating-point precision, edge cases in Lua number handling). For
+true Lua script validation against a production Redis instance, run the
+integration test suite with ``--redis-url=redis://...`` in a real environment
+(CI with redis-service or docker-compose).
 """
 
 import asyncio

@@ -94,6 +94,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         missing or malformed, returns "default" as the fallback key
         (all unauthenticated requests share a single bucket).
 
+        Note: The "Bearer" prefix check is case-sensitive per RFC 6750
+        Section 1.1. Lowercase "bearer" is intentionally treated as
+        unauthenticated (falls back to "default" bucket).
+
         Args:
             request: The incoming HTTP request.
 

@@ -101,12 +101,25 @@ class TestCompletionsEndpoint:
 
         assert response.status_code == 503
 
-    @patch("llm_serving.api.router.generate")
-    async def test_completions_sync_success(
-        self, mock_generate: MagicMock, app
-    ) -> None:
-        """POST /v1/completions should return generated text for sync requests."""
-        mock_generate.return_value = ("Generated text", 5, 10)
+    async def test_completions_sync_success(self, app) -> None:
+        """POST /v1/completions should return generated text via worker pool."""
+        import asyncio
+
+        worker_pool = app.state.worker_pool
+
+        # The worker pool's register_request returns a Future.
+        # We need to resolve it with the expected result before the request times out.
+        original_register = worker_pool.register_request.side_effect
+
+        def _register_and_resolve(request_id: str) -> asyncio.Future:
+            future = original_register(request_id)
+            # Schedule the future to be resolved shortly
+            asyncio.get_event_loop().call_soon(
+                future.set_result, ("Generated text", 5, 10)
+            )
+            return future
+
+        worker_pool.register_request = MagicMock(side_effect=_register_and_resolve)
 
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
@@ -184,14 +197,20 @@ class TestCompletionsEndpoint:
             )
             assert response.status_code == 422
 
-    @patch("llm_serving.api.router.generate")
-    async def test_completions_timeout_returns_504(
-        self, mock_generate: MagicMock, app
-    ) -> None:
+    async def test_completions_timeout_returns_504(self, app) -> None:
         """POST /v1/completions should return 504 on generation timeout."""
         import asyncio
 
-        mock_generate.side_effect = asyncio.TimeoutError()
+        worker_pool = app.state.worker_pool
+        original_register = worker_pool.register_request.side_effect
+
+        def _register_never_resolves(request_id: str) -> asyncio.Future:
+            """Return a Future that never resolves (simulates timeout)."""
+            future = original_register(request_id)
+            # Don't resolve it — let it time out
+            return future
+
+        worker_pool.register_request = MagicMock(side_effect=_register_never_resolves)
 
         # Set a very short timeout for testing
         app.state.model_manager.settings.generation_timeout_s = 0.01
@@ -243,36 +262,60 @@ class TestSchemaValidation:
 
     async def test_default_values_applied(self, app) -> None:
         """Defaults should be applied when optional fields are omitted."""
-        with patch("llm_serving.api.router.generate") as mock_gen:
-            mock_gen.return_value = ("text", 3, 5)
+        import asyncio
 
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as client:
-                response = await client.post(
-                    "/v1/completions",
-                    json={"prompt": "Hello"},
-                )
+        worker_pool = app.state.worker_pool
+        original_register = worker_pool.register_request.side_effect
 
-            assert response.status_code == 200
-            # Verify defaults were passed
-            call_kwargs = mock_gen.call_args
-            assert call_kwargs.kwargs["max_new_tokens"] == 256  # default
-            assert call_kwargs.kwargs["temperature"] == 0.7  # default
+        def _register_and_resolve(request_id: str) -> asyncio.Future:
+            future = original_register(request_id)
+            asyncio.get_event_loop().call_soon(
+                future.set_result, ("text", 3, 5)
+            )
+            return future
+
+        worker_pool.register_request = MagicMock(side_effect=_register_and_resolve)
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.post(
+                "/v1/completions",
+                json={"prompt": "Hello"},
+            )
+
+        assert response.status_code == 200
+        # Verify defaults were passed to enqueue payload
+        enqueue_call = app.state.priority_queue.enqueue.call_args
+        payload = enqueue_call.kwargs["payload"]
+        assert payload["max_tokens"] == 256  # default
+        assert payload["temperature"] == 0.7  # default
 
     async def test_seed_field_accepted(self, app) -> None:
-        """The seed field should be accepted and passed through."""
-        with patch("llm_serving.api.router.generate") as mock_gen:
-            mock_gen.return_value = ("text", 3, 5)
+        """The seed field should be accepted and passed through to the queue."""
+        import asyncio
 
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as client:
-                response = await client.post(
-                    "/v1/completions",
-                    json={"prompt": "Hello", "seed": 42},
-                )
+        worker_pool = app.state.worker_pool
+        original_register = worker_pool.register_request.side_effect
 
-            assert response.status_code == 200
-            call_kwargs = mock_gen.call_args
-            assert call_kwargs.kwargs["seed"] == 42
+        def _register_and_resolve(request_id: str) -> asyncio.Future:
+            future = original_register(request_id)
+            asyncio.get_event_loop().call_soon(
+                future.set_result, ("text", 3, 5)
+            )
+            return future
+
+        worker_pool.register_request = MagicMock(side_effect=_register_and_resolve)
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.post(
+                "/v1/completions",
+                json={"prompt": "Hello", "seed": 42},
+            )
+
+        assert response.status_code == 200
+        enqueue_call = app.state.priority_queue.enqueue.call_args
+        payload = enqueue_call.kwargs["payload"]
+        assert payload["seed"] == 42

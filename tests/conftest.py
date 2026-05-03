@@ -109,11 +109,36 @@ def mock_priority_queue() -> MagicMock:
 
 
 @pytest.fixture
+def mock_worker_pool() -> MagicMock:
+    """Create a mock InferenceWorkerPool that resolves futures immediately."""
+    import asyncio
+    from llm_serving.core.worker import InferenceWorkerPool
+
+    pool = MagicMock(spec=InferenceWorkerPool)
+
+    def _register_request(request_id: str) -> asyncio.Future:
+        """Return a Future that will be resolved by the test's generate mock."""
+        loop = asyncio.get_event_loop()
+        future: asyncio.Future = loop.create_future()
+        # Store it so we can resolve it from the generate mock
+        pool._test_futures[request_id] = future
+        return future
+
+    pool._test_futures = {}
+    pool.register_request = MagicMock(side_effect=_register_request)
+    pool.cancel_request = MagicMock()
+    pool.start = AsyncMock()
+    pool.stop = AsyncMock()
+    return pool
+
+
+@pytest.fixture
 def app(
     model_manager: ModelManager,
     mock_redis_client: MagicMock,
     mock_rate_limiter: MagicMock,
     mock_priority_queue: MagicMock,
+    mock_worker_pool: MagicMock,
     settings: Settings,
 ):
     """Create a FastAPI test app with mocked dependencies."""
@@ -126,6 +151,7 @@ def app(
     fastapi_app.state.redis_client = mock_redis_client
     fastapi_app.state.rate_limiter = mock_rate_limiter
     fastapi_app.state.priority_queue = mock_priority_queue
+    fastapi_app.state.worker_pool = mock_worker_pool
     fastapi_app.state.settings = settings
 
     return fastapi_app
