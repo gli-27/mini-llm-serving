@@ -25,6 +25,10 @@ class Settings(BaseSettings):
         host: Host address to bind the server to.
         port: Port number to bind the server to.
         log_level: Logging level (debug, info, warning, error, critical).
+        redis_url: Redis connection URL for queues and rate limiting.
+        rate_limit_bucket_size: Max tokens in the rate limit bucket per API key.
+        rate_limit_refill_rate: Tokens added per second to the rate limit bucket.
+        max_queue_depth: Max queue depth before load shedding triggers (503).
     """
 
     app_env: str = "development"
@@ -36,6 +40,10 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
     log_level: str = "info"
+    redis_url: str = "redis://localhost:6379/0"
+    rate_limit_bucket_size: int = 10
+    rate_limit_refill_rate: float = 2.0
+    max_queue_depth: int = 100
 
     model_config = {
         "env_prefix": "LLM_",

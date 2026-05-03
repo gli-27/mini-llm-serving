@@ -13,7 +13,7 @@ class TestHealthEndpoint:
     """Tests for GET /health."""
 
     async def test_health_returns_200_when_loaded(self, app, model_manager: ModelManager) -> None:
-        """GET /health should return 200 with model name when model is loaded."""
+        """GET /health should return 200 with model name and redis=true when all healthy."""
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
         ) as client:
@@ -23,6 +23,7 @@ class TestHealthEndpoint:
         data = response.json()
         assert data["status"] == "healthy"
         assert data["model"] == "test-model"
+        assert data["redis"] is True
 
     async def test_health_returns_503_when_not_loaded(self, app) -> None:
         """GET /health should return 503 when model is not loaded."""
@@ -36,6 +37,19 @@ class TestHealthEndpoint:
             response = await client.get("/health")
 
         assert response.status_code == 503
+
+    async def test_health_returns_503_when_redis_down(self, app) -> None:
+        """GET /health should return 503 when Redis is unreachable."""
+        app.state.redis_client.health_check = AsyncMock(return_value=False)
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get("/health")
+
+        assert response.status_code == 503
+        data = response.json()
+        assert data["detail"]["error"]["message"] == "Redis is unreachable"
 
 
 class TestModelsEndpoint:

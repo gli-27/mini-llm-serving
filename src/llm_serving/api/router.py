@@ -24,6 +24,8 @@ from llm_serving.core.streaming import generate_stream
 from llm_serving.exceptions import ModelNotLoadedError
 from llm_serving.logging import get_logger
 from llm_serving.models.loader import ModelManager
+from llm_serving.queue.priority_queue import PriorityQueue
+from llm_serving.queue.redis_client import RedisClient
 
 logger = get_logger(__name__)
 
@@ -54,22 +56,57 @@ def get_inference_executor(request: Request) -> ThreadPoolExecutor:
     return request.app.state.inference_executor  # type: ignore[no-any-return]
 
 
+def get_redis_client(request: Request) -> RedisClient:
+    """Dependency that retrieves the RedisClient from app state.
+
+    Args:
+        request: The incoming FastAPI request.
+
+    Returns:
+        The shared RedisClient instance.
+    """
+    return request.app.state.redis_client  # type: ignore[no-any-return]
+
+
+def get_priority_queue(request: Request) -> PriorityQueue:
+    """Dependency that retrieves the PriorityQueue from app state.
+
+    Args:
+        request: The incoming FastAPI request.
+
+    Returns:
+        The shared PriorityQueue instance.
+    """
+    return request.app.state.priority_queue  # type: ignore[no-any-return]
+
+
 @router.get("/health", response_model=HealthResponse)
 async def health_check(
     model_manager: ModelManager = Depends(get_model_manager),
+    redis_client: RedisClient = Depends(get_redis_client),
 ) -> HealthResponse:
     """Health check endpoint.
 
-    Returns 200 with model name if healthy, 503 if model is not loaded.
+    Returns 200 with status "healthy" if model and Redis are both up.
+    Returns 503 if model is not loaded or Redis is unreachable.
     """
     if not model_manager.is_loaded:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={"error": {"message": "Model not loaded", "type": "server_error", "code": 503}},
         )
+
+    redis_healthy = await redis_client.health_check()
+    if not redis_healthy:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": {"message": "Redis is unreachable", "type": "server_error", "code": 503}},
+        )
+
     return HealthResponse(
         status="healthy",
         model=model_manager.settings.model_name,
+        redis=redis_healthy,
     )
 
 
@@ -79,12 +116,17 @@ async def create_completion(
     request: Request,
     model_manager: ModelManager = Depends(get_model_manager),
     executor: ThreadPoolExecutor = Depends(get_inference_executor),
+    priority_queue: PriorityQueue = Depends(get_priority_queue),
 ) -> CompletionResponse | StreamingResponse:
     """Generate a text completion from a prompt.
 
     If ``stream=False`` (default), returns a full CompletionResponse.
     If ``stream=True``, returns a StreamingResponse with SSE-formatted
     token chunks followed by a ``data: [DONE]`` sentinel.
+
+    The request is enqueued into the priority queue (for depth tracking
+    and future batch scheduling), then immediately dequeued for inline
+    processing in the current MVP.
 
     Inference runs in a ThreadPoolExecutor to:
     - Limit concurrency (max_workers prevents GPU OOM)
@@ -96,6 +138,7 @@ async def create_completion(
         request: The raw FastAPI request (for disconnect detection).
         model_manager: The injected ModelManager dependency.
         executor: The inference thread pool executor.
+        priority_queue: The priority queue for request scheduling.
 
     Returns:
         CompletionResponse for sync, StreamingResponse for streaming.
@@ -108,6 +151,23 @@ async def create_completion(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={"error": {"message": "Model not loaded", "type": "server_error", "code": 503}},
         )
+
+    # Enqueue into priority queue for depth tracking + future batch scheduling
+    request_id = f"cmpl-{uuid.uuid4().hex[:8]}"
+    queue_depth = await priority_queue.enqueue(
+        request_id=request_id,
+        priority=body.priority,
+        payload={"prompt": body.prompt, "max_tokens": body.max_tokens},
+    )
+    logger.info(
+        "Request enqueued",
+        request_id=request_id,
+        priority=body.priority,
+        queue_depth=queue_depth,
+    )
+
+    # MVP: inline processing — dequeue our own request immediately
+    await priority_queue.dequeue()
 
     if body.stream:
         return _create_streaming_response(body, request, model_manager, executor)

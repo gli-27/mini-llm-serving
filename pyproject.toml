@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=68.0", "wheel"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "llm-serving"
@@ -16,7 +16,7 @@ dependencies = [
     "uvicorn[standard]>=0.29.0",
     "transformers>=4.40.0",
     "torch>=2.2.0",
-    "redis>=5.0.0",
+    "redis[hiredis]>=5.0.0",
     "pydantic>=2.6.0",
     "pydantic-settings>=2.2.0",
     "sse-starlette>=2.0.0",
@@ -39,6 +39,7 @@ dev = [
     "mypy>=1.9.0",
     "locust>=2.24.0",
     "pre-commit>=3.6.0",
+    "fakeredis[lua]>=2.21.0",
 ]
 
 [tool.setuptools.packages.find]

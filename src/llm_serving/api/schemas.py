@@ -39,6 +39,12 @@ class CompletionRequest(BaseModel):
         default=None,
         description="Random seed for reproducible generation. If None, results are non-deterministic.",
     )
+    priority: int = Field(
+        default=2,
+        ge=1,
+        le=3,
+        description="Request priority: 1=critical, 2=standard, 3=batch.",
+    )
 
 
 class UsageInfo(BaseModel):
@@ -79,10 +85,12 @@ class HealthResponse(BaseModel):
     Attributes:
         status: Health status string ("healthy" or "unhealthy").
         model: Name of the loaded model, if any.
+        redis: Whether the Redis connection is healthy.
     """
 
     status: str
     model: str | None = None
+    redis: bool = False
 
 
 class ModelInfo(BaseModel):

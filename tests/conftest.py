@@ -1,12 +1,13 @@
 """Shared test fixtures for the LLM serving test suite."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import torch
 
 from llm_serving.config import Settings
 from llm_serving.models.loader import ModelManager
+from llm_serving.queue.redis_client import RedisClient
 
 
 @pytest.fixture
@@ -76,13 +77,55 @@ def unloaded_model_manager(settings: Settings) -> ModelManager:
 
 
 @pytest.fixture
-def app(model_manager: ModelManager):
-    """Create a FastAPI test app with mocked model manager and executor."""
+def mock_redis_client() -> MagicMock:
+    """Create a mock RedisClient with async health_check returning True."""
+    client = MagicMock(spec=RedisClient)
+    client.health_check = AsyncMock(return_value=True)
+    client.connect = AsyncMock()
+    client.close = AsyncMock()
+    return client
+
+
+@pytest.fixture
+def mock_rate_limiter() -> MagicMock:
+    """Create a mock TokenBucketRateLimiter that allows all requests."""
+    from llm_serving.queue.rate_limiter import TokenBucketRateLimiter
+
+    limiter = MagicMock(spec=TokenBucketRateLimiter)
+    limiter.try_consume = AsyncMock(return_value=(True, {"remaining": 9.0, "limit": 10.0, "retry_after": 0.0}))
+    return limiter
+
+
+@pytest.fixture
+def mock_priority_queue() -> MagicMock:
+    """Create a mock PriorityQueue with zero depth."""
+    from llm_serving.queue.priority_queue import PriorityQueue
+
+    queue = MagicMock(spec=PriorityQueue)
+    queue.queue_depth = AsyncMock(return_value=0)
+    queue.enqueue = AsyncMock(return_value=1)
+    queue.dequeue = AsyncMock(return_value=None)
+    return queue
+
+
+@pytest.fixture
+def app(
+    model_manager: ModelManager,
+    mock_redis_client: MagicMock,
+    mock_rate_limiter: MagicMock,
+    mock_priority_queue: MagicMock,
+    settings: Settings,
+):
+    """Create a FastAPI test app with mocked dependencies."""
     from concurrent.futures import ThreadPoolExecutor
 
     from llm_serving.main import app as fastapi_app
 
     fastapi_app.state.model_manager = model_manager
     fastapi_app.state.inference_executor = ThreadPoolExecutor(max_workers=1)
+    fastapi_app.state.redis_client = mock_redis_client
+    fastapi_app.state.rate_limiter = mock_rate_limiter
+    fastapi_app.state.priority_queue = mock_priority_queue
+    fastapi_app.state.settings = settings
 
     return fastapi_app

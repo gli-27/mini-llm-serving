@@ -6,9 +6,9 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - REDIS_URL=redis://redis:6379/0
-      - MODEL_NAME=TinyLlama/TinyLlama-1.1B-Chat-v1.0
-      - LOG_LEVEL=debug
+      - LLM_REDIS_URL=redis://redis:6379/0
+      - LLM_MODEL_NAME=TinyLlama/TinyLlama-1.1B-Chat-v1.0
+      - LLM_LOG_LEVEL=debug
     depends_on:
       redis:
         condition: service_healthy

@@ -23,6 +23,10 @@ class TestSettings:
         assert settings.host == "0.0.0.0"
         assert settings.port == 8000
         assert settings.log_level == "info"
+        assert settings.redis_url == "redis://localhost:6379/0"
+        assert settings.rate_limit_bucket_size == 10
+        assert settings.rate_limit_refill_rate == 2.0
+        assert settings.max_queue_depth == 100
 
     def test_override_via_constructor(self) -> None:
         """Settings should accept overrides via constructor kwargs."""

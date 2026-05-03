@@ -10,7 +10,12 @@ from fastapi import FastAPI
 from llm_serving.api.router import router
 from llm_serving.config import get_settings
 from llm_serving.logging import get_logger, setup_logging
+from llm_serving.middleware.load_shedder import LoadShedderMiddleware
+from llm_serving.middleware.rate_limit import RateLimitMiddleware
 from llm_serving.models.loader import ModelManager
+from llm_serving.queue.priority_queue import PriorityQueue
+from llm_serving.queue.rate_limiter import TokenBucketRateLimiter
+from llm_serving.queue.redis_client import RedisClient
 
 logger = get_logger(__name__)
 
@@ -20,10 +25,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Manage application startup and shutdown.
 
     On startup: configures structured logging, loads settings, creates
-    ModelManager, loads the model, and creates a ThreadPoolExecutor for
-    inference concurrency control.
+    ModelManager, loads the model, creates a ThreadPoolExecutor for
+    inference concurrency control, connects to Redis, and initializes
+    the rate limiter and priority queue.
 
-    On shutdown: shuts down the executor and logs a message.
+    On shutdown: closes Redis, shuts down the executor, and logs.
     """
     settings = get_settings()
 
@@ -51,11 +57,28 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
     logger.info("Inference thread pool: max_workers=%d", settings.max_concurrent_requests)
 
+    # Connect to Redis
+    redis_client = RedisClient(settings.redis_url)
+    await redis_client.connect()
+
+    # Create rate limiter and priority queue
+    rate_limiter = TokenBucketRateLimiter(
+        redis_client,
+        bucket_size=settings.rate_limit_bucket_size,
+        refill_rate=settings.rate_limit_refill_rate,
+    )
+    priority_queue = PriorityQueue(redis_client)
+
     app.state.model_manager = model_manager
     app.state.inference_executor = inference_executor
+    app.state.redis_client = redis_client
+    app.state.rate_limiter = rate_limiter
+    app.state.priority_queue = priority_queue
+    app.state.settings = settings
 
     yield
 
+    await redis_client.close()
     inference_executor.shutdown(wait=False)
     logger.info("Shutting down LLM Serving Platform")
 
@@ -66,5 +89,10 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+# Middleware is added in reverse order — last added = first to execute.
+# Order: LoadShedder → RateLimit → route handler
+app.add_middleware(RateLimitMiddleware)
+app.add_middleware(LoadShedderMiddleware)
 
 app.include_router(router)
