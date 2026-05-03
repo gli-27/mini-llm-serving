@@ -2,8 +2,6 @@
 
 import logging
 
-import structlog
-
 from llm_serving.logging import get_logger, setup_logging
 
 

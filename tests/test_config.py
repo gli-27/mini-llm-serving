@@ -3,8 +3,6 @@
 import os
 from unittest.mock import patch
 
-import pytest
-
 from llm_serving.config import Settings, get_settings
 
 
@@ -27,6 +25,8 @@ class TestSettings:
         assert settings.rate_limit_bucket_size == 10
         assert settings.rate_limit_refill_rate == 2.0
         assert settings.max_queue_depth == 100
+        assert settings.circuit_breaker_failure_threshold == 5
+        assert settings.circuit_breaker_recovery_timeout_s == 30.0
 
     def test_override_via_constructor(self) -> None:
         """Settings should accept overrides via constructor kwargs."""

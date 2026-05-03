@@ -138,7 +138,7 @@ class InferenceWorkerPool:
         self._tasks.clear()
 
         # Cancel any remaining pending futures
-        for request_id, future in self._pending.items():
+        for _request_id, future in self._pending.items():
             if not future.done():
                 future.cancel()
         self._pending.clear()

@@ -1,5 +1,7 @@
 """Pydantic request/response models for the LLM serving API."""
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -37,7 +39,8 @@ class CompletionRequest(BaseModel):
     )
     seed: int | None = Field(
         default=None,
-        description="Random seed for reproducible generation. If None, results are non-deterministic.",
+        description="Random seed for reproducible generation. "
+        "If None, results are non-deterministic.",
     )
     priority: int = Field(
         default=2,
@@ -83,14 +86,18 @@ class HealthResponse(BaseModel):
     """Response body for the /health endpoint.
 
     Attributes:
-        status: Health status string ("healthy" or "unhealthy").
-        model: Name of the loaded model, if any.
+        status: Health status: "healthy", "degraded", or "unhealthy".
+        model: Name of the loaded model.
         redis: Whether the Redis connection is healthy.
+        circuit_breaker: Current circuit breaker state.
+        queue_depth: Number of pending requests in the inference queue.
     """
 
-    status: str
-    model: str | None = None
+    status: Literal["healthy", "degraded", "unhealthy"]
+    model: str
     redis: bool = False
+    circuit_breaker: str = "closed"
+    queue_depth: int = 0
 
 
 class ModelInfo(BaseModel):

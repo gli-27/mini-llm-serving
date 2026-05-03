@@ -19,6 +19,7 @@ from llm_serving.api.schemas import (
     StreamChunk,
     UsageInfo,
 )
+from llm_serving.core.circuit_breaker import CircuitBreaker, CircuitState
 from llm_serving.core.inference import generate
 from llm_serving.core.streaming import generate_stream
 from llm_serving.core.worker import InferenceWorkerPool
@@ -93,34 +94,61 @@ def get_worker_pool(request: Request) -> InferenceWorkerPool:
     return request.app.state.worker_pool  # type: ignore[no-any-return]
 
 
+def get_circuit_breaker(request: Request) -> CircuitBreaker:
+    """Dependency that retrieves the CircuitBreaker from app state.
+
+    Args:
+        request: The incoming FastAPI request.
+
+    Returns:
+        The shared CircuitBreaker instance.
+    """
+    return request.app.state.circuit_breaker  # type: ignore[no-any-return]
+
+
 @router.get("/health", response_model=HealthResponse)
 async def health_check(
     model_manager: ModelManager = Depends(get_model_manager),
     redis_client: RedisClient = Depends(get_redis_client),
+    priority_queue: PriorityQueue = Depends(get_priority_queue),
+    circuit_breaker: CircuitBreaker = Depends(get_circuit_breaker),
 ) -> HealthResponse:
-    """Health check endpoint.
+    """Health check endpoint with 3-state health reporting.
 
-    Returns 200 with status "healthy" if model and Redis are both up.
-    Returns 503 if model is not loaded or Redis is unreachable.
+    Returns:
+        - "healthy": model loaded + Redis up + circuit closed
+        - "degraded": model loaded but Redis down OR circuit half-open
+        - "unhealthy": model not loaded OR circuit open (returns 503)
     """
-    if not model_manager.is_loaded:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={"error": {"message": "Model not loaded", "type": "server_error", "code": 503}},
-        )
-
+    model_loaded = model_manager.is_loaded
     redis_healthy = await redis_client.health_check()
-    if not redis_healthy:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={"error": {"message": "Redis is unreachable", "type": "server_error", "code": 503}},
-        )
+    cb_state = circuit_breaker.state
+    queue_depth = await priority_queue.queue_depth()
 
-    return HealthResponse(
-        status="healthy",
+    # Determine health status
+    if not model_loaded or cb_state == CircuitState.OPEN:
+        health_status: str = "unhealthy"
+    elif not redis_healthy or cb_state == CircuitState.HALF_OPEN:
+        health_status = "degraded"
+    else:
+        health_status = "healthy"
+
+    response = HealthResponse(
+        status=health_status,  # type: ignore[arg-type]
         model=model_manager.settings.model_name,
         redis=redis_healthy,
+        circuit_breaker=cb_state.value,
+        queue_depth=queue_depth,
     )
+
+    # Return 503 for unhealthy
+    if health_status == "unhealthy":
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=response.model_dump(),
+        )
+
+    return response
 
 
 @router.post("/v1/completions", response_model=None, status_code=status.HTTP_200_OK)
@@ -204,23 +232,41 @@ async def create_completion(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={"error": {"message": "Request cancelled", "type": "server_error", "code": 503}},
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         worker_pool.cancel_request(request_id)
         logger.error("Generation timed out after %.1fs", timeout_s)
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail={"error": {"message": f"Generation timed out after {timeout_s}s", "type": "timeout_error", "code": 504}},
+            detail={
+                "error": {
+                    "message": f"Generation timed out after {timeout_s}s",
+                    "type": "timeout_error",
+                    "code": 504,
+                }
+            },
         )
     except ModelNotLoadedError:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={"error": {"message": "Model not loaded", "type": "server_error", "code": 503}},
+            detail={
+                "error": {
+                    "message": "Model not loaded",
+                    "type": "server_error",
+                    "code": 503,
+                }
+            },
         )
     except Exception as exc:
         logger.exception("Inference failed: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"error": {"message": "Inference failed", "type": "server_error", "code": 500}},
+            detail={
+                "error": {
+                    "message": "Inference failed",
+                    "type": "server_error",
+                    "code": 500,
+                }
+            },
         )
 
     return CompletionResponse(
@@ -274,19 +320,37 @@ async def _create_sync_response(
     except ModelNotLoadedError:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={"error": {"message": "Model not loaded", "type": "server_error", "code": 503}},
+            detail={
+                "error": {
+                    "message": "Model not loaded",
+                    "type": "server_error",
+                    "code": 503,
+                }
+            },
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.error("Generation timed out after %.1fs", timeout_s)
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail={"error": {"message": f"Generation timed out after {timeout_s}s", "type": "timeout_error", "code": 504}},
+            detail={
+                "error": {
+                    "message": f"Generation timed out after {timeout_s}s",
+                    "type": "timeout_error",
+                    "code": 504,
+                }
+            },
         )
     except Exception as exc:
         logger.exception("Inference failed: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"error": {"message": "Inference failed", "type": "server_error", "code": 500}},
+            detail={
+                "error": {
+                    "message": "Inference failed",
+                    "type": "server_error",
+                    "code": 500,
+                }
+            },
         )
 
     completion_id = f"cmpl-{uuid.uuid4().hex[:8]}"
@@ -371,11 +435,19 @@ def _create_streaming_response(
                     token = await asyncio.wait_for(
                         token_queue.get(), timeout=timeout_s
                     )
-                except asyncio.TimeoutError:
-                    logger.error("Streaming timed out after %.1fs for %s", timeout_s, completion_id)
-                    error_data = json.dumps(
-                        {"error": {"message": "Generation timed out", "type": "timeout_error", "code": 504}}
+                except TimeoutError:
+                    logger.error(
+                        "Streaming timed out after %.1fs for %s",
+                        timeout_s,
+                        completion_id,
                     )
+                    error_data = json.dumps({
+                        "error": {
+                            "message": "Generation timed out",
+                            "type": "timeout_error",
+                            "code": 504,
+                        }
+                    })
                     yield f"data: {error_data}\n\n"
                     break
 

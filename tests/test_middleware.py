@@ -1,8 +1,7 @@
 """Tests for rate limiting and load shedding middleware."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
-import pytest
 from httpx import ASGITransport, AsyncClient
 
 

@@ -3,7 +3,6 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-import torch
 
 from llm_serving.core.inference import generate
 from llm_serving.exceptions import ModelNotLoadedError

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from llm_serving.queue.priority_queue import Priority, PriorityQueue, _PRIORITY_MULTIPLIER
+from llm_serving.queue.priority_queue import _PRIORITY_MULTIPLIER, Priority, PriorityQueue
 from llm_serving.queue.redis_client import RedisClient
 
 

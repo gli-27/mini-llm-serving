@@ -9,8 +9,10 @@ from fastapi import FastAPI
 
 from llm_serving.api.router import router
 from llm_serving.config import get_settings
+from llm_serving.core.circuit_breaker import CircuitBreaker
 from llm_serving.core.worker import InferenceWorkerPool
 from llm_serving.logging import get_logger, setup_logging
+from llm_serving.middleware.error_handler import global_exception_handler
 from llm_serving.middleware.load_shedder import LoadShedderMiddleware
 from llm_serving.middleware.rate_limit import RateLimitMiddleware
 from llm_serving.models.loader import ModelManager
@@ -70,6 +72,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
     priority_queue = PriorityQueue(redis_client)
 
+    # Create circuit breaker
+    circuit_breaker = CircuitBreaker(
+        failure_threshold=settings.circuit_breaker_failure_threshold,
+        recovery_timeout_s=settings.circuit_breaker_recovery_timeout_s,
+    )
+
     # Create and start background worker pool
     worker_pool = InferenceWorkerPool(
         priority_queue=priority_queue,
@@ -85,6 +93,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.rate_limiter = rate_limiter
     app.state.priority_queue = priority_queue
     app.state.worker_pool = worker_pool
+    app.state.circuit_breaker = circuit_breaker
     app.state.settings = settings
 
     yield
@@ -101,6 +110,9 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+# Global exception handler — catches all unhandled exceptions
+app.add_exception_handler(Exception, global_exception_handler)
 
 # Middleware is added in reverse order — last added = first to execute.
 # Order: LoadShedder → RateLimit → route handler

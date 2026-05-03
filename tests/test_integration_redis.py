@@ -12,7 +12,6 @@ integration test suite with ``--redis-url=redis://...`` in a real environment
 """
 
 import asyncio
-import time
 
 import fakeredis.aioredis
 import pytest

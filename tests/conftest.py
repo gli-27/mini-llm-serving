@@ -1,6 +1,6 @@
 """Shared test fixtures for the LLM serving test suite."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import torch
@@ -112,6 +112,7 @@ def mock_priority_queue() -> MagicMock:
 def mock_worker_pool() -> MagicMock:
     """Create a mock InferenceWorkerPool that resolves futures immediately."""
     import asyncio
+
     from llm_serving.core.worker import InferenceWorkerPool
 
     pool = MagicMock(spec=InferenceWorkerPool)
@@ -133,12 +134,27 @@ def mock_worker_pool() -> MagicMock:
 
 
 @pytest.fixture
+def mock_circuit_breaker() -> MagicMock:
+    """Create a mock CircuitBreaker in CLOSED state."""
+    from llm_serving.core.circuit_breaker import CircuitBreaker, CircuitState
+
+    breaker = MagicMock(spec=CircuitBreaker)
+    breaker.state = CircuitState.CLOSED
+    breaker.allow_request = AsyncMock(return_value=True)
+    breaker.record_success = AsyncMock()
+    breaker.record_failure = AsyncMock()
+    breaker.failure_count = 0
+    return breaker
+
+
+@pytest.fixture
 def app(
     model_manager: ModelManager,
     mock_redis_client: MagicMock,
     mock_rate_limiter: MagicMock,
     mock_priority_queue: MagicMock,
     mock_worker_pool: MagicMock,
+    mock_circuit_breaker: MagicMock,
     settings: Settings,
 ):
     """Create a FastAPI test app with mocked dependencies."""
@@ -152,6 +168,7 @@ def app(
     fastapi_app.state.rate_limiter = mock_rate_limiter
     fastapi_app.state.priority_queue = mock_priority_queue
     fastapi_app.state.worker_pool = mock_worker_pool
+    fastapi_app.state.circuit_breaker = mock_circuit_breaker
     fastapi_app.state.settings = settings
 
     return fastapi_app

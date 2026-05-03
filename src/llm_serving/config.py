@@ -29,6 +29,8 @@ class Settings(BaseSettings):
         rate_limit_bucket_size: Max tokens in the rate limit bucket per API key.
         rate_limit_refill_rate: Tokens added per second to the rate limit bucket.
         max_queue_depth: Max queue depth before load shedding triggers (503).
+        circuit_breaker_failure_threshold: Consecutive failures before circuit trips.
+        circuit_breaker_recovery_timeout_s: Seconds before OPEN → HALF_OPEN probe.
     """
 
     app_env: str = "development"
@@ -44,6 +46,8 @@ class Settings(BaseSettings):
     rate_limit_bucket_size: int = 10
     rate_limit_refill_rate: float = 2.0
     max_queue_depth: int = 100
+    circuit_breaker_failure_threshold: int = 5
+    circuit_breaker_recovery_timeout_s: float = 30.0
 
     model_config = {
         "env_prefix": "LLM_",
