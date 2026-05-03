@@ -72,6 +72,10 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
             message=str(exc),
         )
 
+    headers: dict[str, str] = {}
+    if status_code == 429:
+        headers["Retry-After"] = "1"
+
     return JSONResponse(
         status_code=status_code,
         content={
@@ -81,4 +85,5 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
                 "code": status_code,
             }
         },
+        headers=headers or None,
     )

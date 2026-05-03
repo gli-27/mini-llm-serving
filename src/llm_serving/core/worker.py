@@ -27,7 +27,9 @@ import functools
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
+from llm_serving.core.circuit_breaker import CircuitBreaker
 from llm_serving.core.inference import generate
+from llm_serving.exceptions import CircuitOpenError
 from llm_serving.logging import get_logger
 from llm_serving.models.loader import ModelManager
 from llm_serving.queue.priority_queue import PriorityQueue
@@ -68,12 +70,14 @@ class InferenceWorkerPool:
         priority_queue: PriorityQueue,
         model_manager: ModelManager,
         executor: ThreadPoolExecutor,
+        circuit_breaker: CircuitBreaker | None = None,
         num_workers: int = 1,
         poll_interval_s: float = 0.01,
     ) -> None:
         self._priority_queue = priority_queue
         self._model_manager = model_manager
         self._executor = executor
+        self._circuit_breaker = circuit_breaker
         self._num_workers = num_workers
         self._poll_interval_s = poll_interval_s
         self._tasks: list[asyncio.Task[None]] = []
@@ -188,6 +192,15 @@ class InferenceWorkerPool:
                     worker_id=worker_id,
                 )
 
+                # Check circuit breaker before inference
+                if self._circuit_breaker and not await self._circuit_breaker.allow_request():
+                    future = self._pending.pop(request_id, None)
+                    if future and not future.done():
+                        future.set_exception(
+                            CircuitOpenError("Circuit breaker is OPEN")
+                        )
+                    continue
+
                 # Run inference in the thread pool (non-blocking)
                 try:
                     loop = asyncio.get_event_loop()
@@ -203,12 +216,20 @@ class InferenceWorkerPool:
                         ),
                     )
 
+                    # Record success with circuit breaker
+                    if self._circuit_breaker:
+                        await self._circuit_breaker.record_success()
+
                     # Resolve the future with the result
                     future = self._pending.pop(request_id, None)
                     if future and not future.done():
                         future.set_result(result)
 
                 except Exception as exc:
+                    # Record failure with circuit breaker
+                    if self._circuit_breaker:
+                        await self._circuit_breaker.record_failure()
+
                     logger.exception(
                         "Worker inference failed",
                         request_id=request_id,

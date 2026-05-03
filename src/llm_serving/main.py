@@ -83,6 +83,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         priority_queue=priority_queue,
         model_manager=model_manager,
         executor=inference_executor,
+        circuit_breaker=circuit_breaker,
         num_workers=settings.max_concurrent_requests,
     )
     await worker_pool.start()
