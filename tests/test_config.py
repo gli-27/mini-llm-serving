@@ -27,6 +27,9 @@ class TestSettings:
         assert settings.max_queue_depth == 100
         assert settings.circuit_breaker_failure_threshold == 5
         assert settings.circuit_breaker_recovery_timeout_s == 30.0
+        assert settings.max_batch_size == 8
+        assert settings.max_batch_wait_ms == 50
+        assert settings.batching_enabled is True
 
     def test_override_via_constructor(self) -> None:
         """Settings should accept overrides via constructor kwargs."""

@@ -13,9 +13,7 @@ from llm_serving.models.loader import ModelManager
 class TestGenerateStream:
     """Tests for the generate_stream() generator."""
 
-    def test_raises_when_model_not_loaded(
-        self, unloaded_model_manager: ModelManager
-    ) -> None:
+    def test_raises_when_model_not_loaded(self, unloaded_model_manager: ModelManager) -> None:
         """generate_stream() should raise ModelNotLoadedError if model isn't loaded."""
         with pytest.raises(ModelNotLoadedError):
             # Must consume the generator to trigger the check

@@ -73,9 +73,7 @@ class TestRedisClient:
         await client.close()  # Should not raise
 
     @patch("llm_serving.queue.redis_client.aioredis.from_url")
-    async def test_health_check_returns_true_when_healthy(
-        self, mock_from_url: MagicMock
-    ) -> None:
+    async def test_health_check_returns_true_when_healthy(self, mock_from_url: MagicMock) -> None:
         """health_check() should return True when Redis responds to PING."""
         mock_redis = AsyncMock()
         mock_redis.ping = AsyncMock(return_value=True)
@@ -92,9 +90,7 @@ class TestRedisClient:
         assert await client.health_check() is False
 
     @patch("llm_serving.queue.redis_client.aioredis.from_url")
-    async def test_health_check_returns_false_on_error(
-        self, mock_from_url: MagicMock
-    ) -> None:
+    async def test_health_check_returns_false_on_error(self, mock_from_url: MagicMock) -> None:
         """health_check() should return False when PING raises an exception."""
         mock_redis = AsyncMock()
         # First ping succeeds (connect), second fails (health_check)

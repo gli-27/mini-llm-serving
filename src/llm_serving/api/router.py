@@ -417,9 +417,7 @@ def _create_streaming_response(
                 error_data = json.dumps(
                     {"error": {"message": str(exc), "type": "server_error", "code": 500}}
                 )
-                loop.call_soon_threadsafe(
-                    token_queue.put_nowait, f"__ERROR__:{error_data}"
-                )
+                loop.call_soon_threadsafe(token_queue.put_nowait, f"__ERROR__:{error_data}")
             finally:
                 # None sentinel signals end of stream
                 loop.call_soon_threadsafe(token_queue.put_nowait, None)
@@ -432,22 +430,22 @@ def _create_streaming_response(
         try:
             while True:
                 try:
-                    token = await asyncio.wait_for(
-                        token_queue.get(), timeout=timeout_s
-                    )
+                    token = await asyncio.wait_for(token_queue.get(), timeout=timeout_s)
                 except TimeoutError:
                     logger.error(
                         "Streaming timed out after %.1fs for %s",
                         timeout_s,
                         completion_id,
                     )
-                    error_data = json.dumps({
-                        "error": {
-                            "message": "Generation timed out",
-                            "type": "timeout_error",
-                            "code": 504,
+                    error_data = json.dumps(
+                        {
+                            "error": {
+                                "message": "Generation timed out",
+                                "type": "timeout_error",
+                                "code": 504,
+                            }
                         }
-                    })
+                    )
                     yield f"data: {error_data}\n\n"
                     break
 
@@ -456,7 +454,7 @@ def _create_streaming_response(
 
                 # Check for error sentinel
                 if token.startswith("__ERROR__:"):
-                    yield f"data: {token[len('__ERROR__:'):]}\n\n"
+                    yield f"data: {token[len('__ERROR__:') :]}\n\n"
                     break
 
                 # Check if client disconnected

@@ -10,9 +10,7 @@ class TestRateLimitMiddleware:
 
     async def test_allowed_request_passes_through(self, app) -> None:
         """Requests within rate limit should pass through with headers."""
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/health")
 
         assert response.status_code == 200
@@ -28,9 +26,7 @@ class TestRateLimitMiddleware:
             return_value=(False, {"remaining": 0.0, "limit": 10.0, "retry_after": 2.5})
         )
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/health")
 
         assert response.status_code == 429
@@ -44,9 +40,7 @@ class TestRateLimitMiddleware:
 
     async def test_extracts_bearer_api_key(self, app) -> None:
         """Middleware should extract API key from Authorization header."""
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get(
                 "/health",
                 headers={"Authorization": "Bearer my-api-key-123"},
@@ -58,9 +52,7 @@ class TestRateLimitMiddleware:
 
     async def test_missing_auth_uses_default_key(self, app) -> None:
         """Requests without Authorization header should use 'default' key."""
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/health")
 
         assert response.status_code == 200
@@ -68,9 +60,7 @@ class TestRateLimitMiddleware:
 
     async def test_malformed_auth_uses_default_key(self, app) -> None:
         """Non-Bearer auth headers should fall back to 'default' key."""
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get(
                 "/health",
                 headers={"Authorization": "Basic dXNlcjpwYXNz"},
@@ -87,9 +77,7 @@ class TestLoadShedderMiddleware:
         """Requests under queue depth limit should pass through."""
         app.state.priority_queue.queue_depth = AsyncMock(return_value=5)
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/v1/models")
 
         assert response.status_code == 200
@@ -99,9 +87,7 @@ class TestLoadShedderMiddleware:
         # Set queue depth to exceed max (default=100 in test settings)
         app.state.priority_queue.queue_depth = AsyncMock(return_value=100)
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/v1/models")
 
         assert response.status_code == 503
@@ -115,9 +101,7 @@ class TestLoadShedderMiddleware:
         """GET /health should bypass load shedding even when overloaded."""
         app.state.priority_queue.queue_depth = AsyncMock(return_value=999)
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/health")
 
         # Should get 200 (healthy) not 503 (overloaded)
@@ -127,9 +111,7 @@ class TestLoadShedderMiddleware:
         """GET /docs should bypass load shedding."""
         app.state.priority_queue.queue_depth = AsyncMock(return_value=999)
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/docs")
 
         # /docs returns 200 (FastAPI auto-generates it)
@@ -139,9 +121,7 @@ class TestLoadShedderMiddleware:
         """POST /v1/completions should be subject to load shedding."""
         app.state.priority_queue.queue_depth = AsyncMock(return_value=200)
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post(
                 "/v1/completions",
                 json={"prompt": "Hello", "max_tokens": 10},
@@ -155,9 +135,7 @@ class TestLoadShedderMiddleware:
         app.state.settings.max_queue_depth = 50
         app.state.priority_queue.queue_depth = AsyncMock(return_value=50)
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/v1/models")
 
         assert response.status_code == 503
@@ -167,9 +145,7 @@ class TestLoadShedderMiddleware:
         app.state.settings.max_queue_depth = 50
         app.state.priority_queue.queue_depth = AsyncMock(return_value=49)
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/v1/models")
 
         assert response.status_code == 200

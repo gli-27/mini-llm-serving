@@ -36,9 +36,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     - ``X-RateLimit-Limit``: Maximum bucket size
     """
 
-    async def dispatch(
-        self, request: Request, call_next: RequestResponseEndpoint
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         """Check rate limit before passing the request through.
 
         Args:

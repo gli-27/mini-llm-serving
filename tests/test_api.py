@@ -13,9 +13,7 @@ class TestHealthEndpoint:
 
     async def test_health_returns_200_when_loaded(self, app, model_manager: ModelManager) -> None:
         """GET /health should return 200 with full health info when all healthy."""
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/health")
 
         assert response.status_code == 200
@@ -28,13 +26,9 @@ class TestHealthEndpoint:
 
     async def test_health_returns_503_when_not_loaded(self, app) -> None:
         """GET /health should return 503 when model is not loaded."""
-        app.state.model_manager = ModelManager(
-            app.state.model_manager.settings
-        )  # Unloaded manager
+        app.state.model_manager = ModelManager(app.state.model_manager.settings)  # Unloaded manager
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/health")
 
         assert response.status_code == 503
@@ -43,9 +37,7 @@ class TestHealthEndpoint:
         """GET /health should return 200 'degraded' when Redis is unreachable."""
         app.state.redis_client.health_check = AsyncMock(return_value=False)
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/health")
 
         assert response.status_code == 200
@@ -59,9 +51,7 @@ class TestHealthEndpoint:
 
         app.state.circuit_breaker.state = CircuitState.OPEN
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/health")
 
         assert response.status_code == 503
@@ -70,13 +60,9 @@ class TestHealthEndpoint:
 class TestModelsEndpoint:
     """Tests for GET /v1/models."""
 
-    async def test_list_models_returns_loaded_model(
-        self, app, model_manager: ModelManager
-    ) -> None:
+    async def test_list_models_returns_loaded_model(self, app, model_manager: ModelManager) -> None:
         """GET /v1/models should list the loaded model."""
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/v1/models")
 
         assert response.status_code == 200
@@ -89,9 +75,7 @@ class TestModelsEndpoint:
         """GET /v1/models should show ready=false when model isn't loaded."""
         app.state.model_manager = ModelManager(app.state.model_manager.settings)
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/v1/models")
 
         assert response.status_code == 200
@@ -106,9 +90,7 @@ class TestCompletionsEndpoint:
         """POST /v1/completions should return 503 when model isn't loaded."""
         app.state.model_manager = ModelManager(app.state.model_manager.settings)
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post(
                 "/v1/completions",
                 json={"prompt": "Hello", "max_tokens": 10},
@@ -129,16 +111,12 @@ class TestCompletionsEndpoint:
         def _register_and_resolve(request_id: str) -> asyncio.Future:
             future = original_register(request_id)
             # Schedule the future to be resolved shortly
-            asyncio.get_event_loop().call_soon(
-                future.set_result, ("Generated text", 5, 10)
-            )
+            asyncio.get_event_loop().call_soon(future.set_result, ("Generated text", 5, 10))
             return future
 
         worker_pool.register_request = MagicMock(side_effect=_register_and_resolve)
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post(
                 "/v1/completions",
                 json={"prompt": "Hello", "max_tokens": 32},
@@ -156,9 +134,7 @@ class TestCompletionsEndpoint:
 
     async def test_completions_validates_prompt_required(self, app) -> None:
         """POST /v1/completions should return 422 when prompt is missing."""
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post(
                 "/v1/completions",
                 json={"max_tokens": 10},
@@ -168,9 +144,7 @@ class TestCompletionsEndpoint:
 
     async def test_completions_validates_prompt_not_empty(self, app) -> None:
         """POST /v1/completions should return 422 for empty prompt."""
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post(
                 "/v1/completions",
                 json={"prompt": "", "max_tokens": 10},
@@ -180,9 +154,7 @@ class TestCompletionsEndpoint:
 
     async def test_completions_validates_max_tokens_range(self, app) -> None:
         """POST /v1/completions should reject max_tokens outside 1-2048."""
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post(
                 "/v1/completions",
                 json={"prompt": "Hello", "max_tokens": 0},
@@ -197,9 +169,7 @@ class TestCompletionsEndpoint:
 
     async def test_completions_validates_temperature_range(self, app) -> None:
         """POST /v1/completions should reject temperature outside 0.0-2.0."""
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post(
                 "/v1/completions",
                 json={"prompt": "Hello", "temperature": -0.1},
@@ -230,9 +200,7 @@ class TestCompletionsEndpoint:
         # Set a very short timeout for testing
         app.state.model_manager.settings.generation_timeout_s = 0.01
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post(
                 "/v1/completions",
                 json={"prompt": "Hello", "max_tokens": 10},
@@ -241,15 +209,11 @@ class TestCompletionsEndpoint:
         assert response.status_code == 504
 
     @patch("llm_serving.api.router.generate_stream")
-    async def test_completions_streaming_returns_sse(
-        self, mock_stream: MagicMock, app
-    ) -> None:
+    async def test_completions_streaming_returns_sse(self, mock_stream: MagicMock, app) -> None:
         """POST /v1/completions with stream=true should return SSE response."""
         mock_stream.return_value = iter(["Hello", " world"])
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post(
                 "/v1/completions",
                 json={"prompt": "Hi", "max_tokens": 10, "stream": True},
@@ -284,16 +248,12 @@ class TestSchemaValidation:
 
         def _register_and_resolve(request_id: str) -> asyncio.Future:
             future = original_register(request_id)
-            asyncio.get_event_loop().call_soon(
-                future.set_result, ("text", 3, 5)
-            )
+            asyncio.get_event_loop().call_soon(future.set_result, ("text", 3, 5))
             return future
 
         worker_pool.register_request = MagicMock(side_effect=_register_and_resolve)
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post(
                 "/v1/completions",
                 json={"prompt": "Hello"},
@@ -315,16 +275,12 @@ class TestSchemaValidation:
 
         def _register_and_resolve(request_id: str) -> asyncio.Future:
             future = original_register(request_id)
-            asyncio.get_event_loop().call_soon(
-                future.set_result, ("text", 3, 5)
-            )
+            asyncio.get_event_loop().call_soon(future.set_result, ("text", 3, 5))
             return future
 
         worker_pool.register_request = MagicMock(side_effect=_register_and_resolve)
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post(
                 "/v1/completions",
                 json={"prompt": "Hello", "seed": 42},

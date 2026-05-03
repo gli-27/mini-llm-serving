@@ -37,9 +37,7 @@ class TestRateLimiterIntegration:
 
     async def test_burst_allows_up_to_bucket_size(self, fake_redis_client: RedisClient) -> None:
         """Burst of requests up to bucket_size should all be allowed."""
-        limiter = TokenBucketRateLimiter(
-            fake_redis_client, bucket_size=5, refill_rate=1.0
-        )
+        limiter = TokenBucketRateLimiter(fake_redis_client, bucket_size=5, refill_rate=1.0)
 
         results = []
         for _ in range(5):
@@ -50,9 +48,7 @@ class TestRateLimiterIntegration:
 
     async def test_rejects_when_bucket_empty(self, fake_redis_client: RedisClient) -> None:
         """Requests beyond bucket_size should be rejected."""
-        limiter = TokenBucketRateLimiter(
-            fake_redis_client, bucket_size=3, refill_rate=1.0
-        )
+        limiter = TokenBucketRateLimiter(fake_redis_client, bucket_size=3, refill_rate=1.0)
 
         # Exhaust the bucket
         for _ in range(3):
@@ -67,7 +63,9 @@ class TestRateLimiterIntegration:
     async def test_refill_allows_again(self, fake_redis_client: RedisClient) -> None:
         """After enough time passes, tokens refill and requests are allowed."""
         limiter = TokenBucketRateLimiter(
-            fake_redis_client, bucket_size=2, refill_rate=100.0  # 100 tokens/sec = fast refill
+            fake_redis_client,
+            bucket_size=2,
+            refill_rate=100.0,  # 100 tokens/sec = fast refill
         )
 
         # Exhaust bucket
@@ -85,13 +83,9 @@ class TestRateLimiterIntegration:
         allowed, info = await limiter.try_consume("user-refill")
         assert allowed is True
 
-    async def test_different_keys_independent_buckets(
-        self, fake_redis_client: RedisClient
-    ) -> None:
+    async def test_different_keys_independent_buckets(self, fake_redis_client: RedisClient) -> None:
         """Different API keys should have independent buckets."""
-        limiter = TokenBucketRateLimiter(
-            fake_redis_client, bucket_size=2, refill_rate=0.1
-        )
+        limiter = TokenBucketRateLimiter(fake_redis_client, bucket_size=2, refill_rate=0.1)
 
         # Exhaust user-a
         await limiter.try_consume("user-a")
@@ -105,9 +99,7 @@ class TestRateLimiterIntegration:
 
     async def test_remaining_decrements(self, fake_redis_client: RedisClient) -> None:
         """Remaining count should decrement with each consume."""
-        limiter = TokenBucketRateLimiter(
-            fake_redis_client, bucket_size=5, refill_rate=0.01
-        )
+        limiter = TokenBucketRateLimiter(fake_redis_client, bucket_size=5, refill_rate=0.01)
 
         _, info1 = await limiter.try_consume("user-dec")
         _, info2 = await limiter.try_consume("user-dec")
@@ -121,9 +113,7 @@ class TestRateLimiterIntegration:
 class TestPriorityQueueIntegration:
     """Integration tests for PriorityQueue with fakeredis."""
 
-    async def test_dequeue_respects_priority_order(
-        self, fake_redis_client: RedisClient
-    ) -> None:
+    async def test_dequeue_respects_priority_order(self, fake_redis_client: RedisClient) -> None:
         """Items should be dequeued in priority order (CRITICAL first)."""
         queue = PriorityQueue(fake_redis_client, queue_key="test_pq_order")
 
@@ -141,9 +131,7 @@ class TestPriorityQueueIntegration:
         assert item2["request_id"] == "req-standard"
         assert item3["request_id"] == "req-batch"
 
-    async def test_fifo_within_same_priority(
-        self, fake_redis_client: RedisClient
-    ) -> None:
+    async def test_fifo_within_same_priority(self, fake_redis_client: RedisClient) -> None:
         """Items with the same priority should be dequeued FIFO."""
         queue = PriorityQueue(fake_redis_client, queue_key="test_pq_fifo")
 
@@ -161,17 +149,13 @@ class TestPriorityQueueIntegration:
         assert item2["request_id"] == "req-2"
         assert item3["request_id"] == "req-3"
 
-    async def test_dequeue_empty_returns_none(
-        self, fake_redis_client: RedisClient
-    ) -> None:
+    async def test_dequeue_empty_returns_none(self, fake_redis_client: RedisClient) -> None:
         """Dequeue from empty queue should return None."""
         queue = PriorityQueue(fake_redis_client, queue_key="test_pq_empty")
         item = await queue.dequeue()
         assert item is None
 
-    async def test_queue_depth_tracks_size(
-        self, fake_redis_client: RedisClient
-    ) -> None:
+    async def test_queue_depth_tracks_size(self, fake_redis_client: RedisClient) -> None:
         """queue_depth should reflect the current number of items."""
         queue = PriorityQueue(fake_redis_client, queue_key="test_pq_depth")
 
@@ -189,9 +173,7 @@ class TestPriorityQueueIntegration:
         await queue.dequeue()
         assert await queue.queue_depth() == 0
 
-    async def test_critical_always_before_batch(
-        self, fake_redis_client: RedisClient
-    ) -> None:
+    async def test_critical_always_before_batch(self, fake_redis_client: RedisClient) -> None:
         """A CRITICAL request enqueued after BATCH should still dequeue first."""
         queue = PriorityQueue(fake_redis_client, queue_key="test_pq_prio_beat")
 
@@ -216,9 +198,7 @@ class TestFailOpen:
         # Create a client that's not connected (will raise RuntimeError)
         broken_client = RedisClient("redis://nonexistent:6379/0")
 
-        limiter = TokenBucketRateLimiter(
-            broken_client, bucket_size=10, refill_rate=2.0
-        )
+        limiter = TokenBucketRateLimiter(broken_client, bucket_size=10, refill_rate=2.0)
 
         # Should fail open (allow) instead of crashing
         allowed, info = await limiter.try_consume("user-123")

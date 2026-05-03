@@ -9,6 +9,7 @@ from fastapi import FastAPI
 
 from llm_serving.api.router import router
 from llm_serving.config import get_settings
+from llm_serving.core.batcher import BatchScheduler
 from llm_serving.core.circuit_breaker import CircuitBreaker
 from llm_serving.core.worker import InferenceWorkerPool
 from llm_serving.logging import get_logger, setup_logging
@@ -78,12 +79,29 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         recovery_timeout_s=settings.circuit_breaker_recovery_timeout_s,
     )
 
+    # Create batch scheduler (if enabled)
+    batch_scheduler: BatchScheduler | None = None
+    if settings.batching_enabled:
+        batch_scheduler = BatchScheduler(
+            model_manager=model_manager,
+            executor=inference_executor,
+            max_batch_size=settings.max_batch_size,
+            max_batch_wait_ms=settings.max_batch_wait_ms,
+        )
+        await batch_scheduler.start()
+        logger.info(
+            "Dynamic batching enabled",
+            max_batch_size=settings.max_batch_size,
+            max_batch_wait_ms=settings.max_batch_wait_ms,
+        )
+
     # Create and start background worker pool
     worker_pool = InferenceWorkerPool(
         priority_queue=priority_queue,
         model_manager=model_manager,
         executor=inference_executor,
         circuit_breaker=circuit_breaker,
+        batch_scheduler=batch_scheduler,
         num_workers=settings.max_concurrent_requests,
     )
     await worker_pool.start()
@@ -100,6 +118,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     yield
 
     await worker_pool.stop()
+    if batch_scheduler:
+        await batch_scheduler.stop()
     await redis_client.close()
     inference_executor.shutdown(wait=False)
     logger.info("Shutting down LLM Serving Platform")

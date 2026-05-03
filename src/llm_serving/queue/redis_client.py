@@ -46,9 +46,7 @@ class RedisClient:
             RuntimeError: If :meth:`connect` has not been called yet.
         """
         if self._redis is None:
-            raise RuntimeError(
-                "Redis client is not connected. Call connect() first."
-            )
+            raise RuntimeError("Redis client is not connected. Call connect() first.")
         return self._redis
 
     async def connect(self) -> None:

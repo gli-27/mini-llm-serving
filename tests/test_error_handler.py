@@ -50,9 +50,7 @@ class TestExceptionMap:
 
     def test_unknown_exception_defaults_to_500(self) -> None:
         """Unknown exceptions should default to (500, 'internal_error')."""
-        status_code, error_type = _EXCEPTION_MAP.get(
-            ValueError, (500, "internal_error")
-        )
+        status_code, error_type = _EXCEPTION_MAP.get(ValueError, (500, "internal_error"))
         assert status_code == 500
         assert error_type == "internal_error"
 
@@ -72,9 +70,7 @@ class TestGlobalExceptionHandler:
         }
         request = Request(scope)
 
-        response = await global_exception_handler(
-            request, CircuitOpenError("Circuit is open")
-        )
+        response = await global_exception_handler(request, CircuitOpenError("Circuit is open"))
 
         assert response.status_code == 503
         assert response.body is not None
@@ -108,9 +104,7 @@ class TestGlobalExceptionHandler:
         }
         request = Request(scope)
 
-        response = await global_exception_handler(
-            request, GenerationError("fail")
-        )
+        response = await global_exception_handler(request, GenerationError("fail"))
 
         assert response.status_code == 500
         # Retry-After should not be in response headers
@@ -129,9 +123,7 @@ class TestGlobalExceptionHandler:
         }
         request = Request(scope)
 
-        response = await global_exception_handler(
-            request, ModelNotLoadedError("Model not loaded")
-        )
+        response = await global_exception_handler(request, ModelNotLoadedError("Model not loaded"))
 
         body = json.loads(response.body)
         assert "error" in body
@@ -152,9 +144,7 @@ class TestGlobalExceptionHandler:
         }
         request = Request(scope)
 
-        response = await global_exception_handler(
-            request, ValueError("unexpected")
-        )
+        response = await global_exception_handler(request, ValueError("unexpected"))
 
         assert response.status_code == 500
         body = json.loads(response.body)

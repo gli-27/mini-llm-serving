@@ -27,6 +27,7 @@ import functools
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
+from llm_serving.core.batcher import BatchScheduler
 from llm_serving.core.circuit_breaker import CircuitBreaker
 from llm_serving.core.inference import generate
 from llm_serving.exceptions import CircuitOpenError
@@ -71,6 +72,7 @@ class InferenceWorkerPool:
         model_manager: ModelManager,
         executor: ThreadPoolExecutor,
         circuit_breaker: CircuitBreaker | None = None,
+        batch_scheduler: BatchScheduler | None = None,
         num_workers: int = 1,
         poll_interval_s: float = 0.01,
     ) -> None:
@@ -78,6 +80,7 @@ class InferenceWorkerPool:
         self._model_manager = model_manager
         self._executor = executor
         self._circuit_breaker = circuit_breaker
+        self._batch_scheduler = batch_scheduler
         self._num_workers = num_workers
         self._poll_interval_s = poll_interval_s
         self._tasks: list[asyncio.Task[None]] = []
@@ -196,25 +199,36 @@ class InferenceWorkerPool:
                 if self._circuit_breaker and not await self._circuit_breaker.allow_request():
                     future = self._pending.pop(request_id, None)
                     if future and not future.done():
-                        future.set_exception(
-                            CircuitOpenError("Circuit breaker is OPEN")
-                        )
+                        future.set_exception(CircuitOpenError("Circuit breaker is OPEN"))
                     continue
 
-                # Run inference in the thread pool (non-blocking)
+                # Run inference — batched or direct depending on config
                 try:
-                    loop = asyncio.get_event_loop()
-                    result = await loop.run_in_executor(
-                        self._executor,
-                        functools.partial(
-                            generate,
-                            model_manager=self._model_manager,
+                    if self._batch_scheduler:
+                        # Batching enabled: submit to batch scheduler
+                        # The scheduler collects, pads, and calls
+                        # generate_batch() when batch is full or timeout
+                        result = await self._batch_scheduler.submit(
+                            request_id=request_id,
                             prompt=prompt,
-                            max_new_tokens=max_tokens,
+                            max_tokens=max_tokens,
                             temperature=temperature,
                             seed=seed,
-                        ),
-                    )
+                        )
+                    else:
+                        # Batching disabled: direct single-request inference
+                        loop = asyncio.get_event_loop()
+                        result = await loop.run_in_executor(
+                            self._executor,
+                            functools.partial(
+                                generate,
+                                model_manager=self._model_manager,
+                                prompt=prompt,
+                                max_new_tokens=max_tokens,
+                                temperature=temperature,
+                                seed=seed,
+                            ),
+                        )
 
                     # Record success with circuit breaker
                     if self._circuit_breaker:

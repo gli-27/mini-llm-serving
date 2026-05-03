@@ -92,7 +92,9 @@ def mock_rate_limiter() -> MagicMock:
     from llm_serving.queue.rate_limiter import TokenBucketRateLimiter
 
     limiter = MagicMock(spec=TokenBucketRateLimiter)
-    limiter.try_consume = AsyncMock(return_value=(True, {"remaining": 9.0, "limit": 10.0, "retry_after": 0.0}))
+    limiter.try_consume = AsyncMock(
+        return_value=(True, {"remaining": 9.0, "limit": 10.0, "retry_after": 0.0})
+    )
     return limiter
 
 

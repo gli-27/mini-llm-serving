@@ -114,18 +114,16 @@ def generate_stream(
         # TextIteratorStreamer raises queue.Empty on timeout —
         # check if the background thread died
         if errors:
-            raise RuntimeError(
-                f"Generation failed in background thread: {errors[0]}"
-            ) from errors[0]
+            raise RuntimeError(f"Generation failed in background thread: {errors[0]}") from errors[
+                0
+            ]
         raise
 
     thread.join(timeout=5.0)
 
     # Check if the background thread raised after streamer finished normally
     if errors:
-        raise RuntimeError(
-            f"Generation failed in background thread: {errors[0]}"
-        ) from errors[0]
+        raise RuntimeError(f"Generation failed in background thread: {errors[0]}") from errors[0]
 
     logger.info("Streamed %d tokens", token_count)
 

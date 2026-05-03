@@ -37,9 +37,7 @@ class LoadShedderMiddleware(BaseHTTPMiddleware):
     observability remains available during overload.
     """
 
-    async def dispatch(
-        self, request: Request, call_next: RequestResponseEndpoint
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         """Check queue depth and shed load if overloaded.
 
         Args:

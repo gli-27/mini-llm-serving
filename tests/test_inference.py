@@ -12,9 +12,7 @@ from llm_serving.models.loader import ModelManager
 class TestGenerate:
     """Tests for the generate() function."""
 
-    def test_generate_returns_text_and_token_counts(
-        self, model_manager: ModelManager
-    ) -> None:
+    def test_generate_returns_text_and_token_counts(self, model_manager: ModelManager) -> None:
         """generate() should return (text, prompt_tokens, completion_tokens)."""
         text, prompt_tokens, completion_tokens = generate(
             model_manager=model_manager,

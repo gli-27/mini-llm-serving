@@ -48,9 +48,7 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
         A JSONResponse with OpenAI-compatible error body:
         ``{"error": {"message": "...", "type": "...", "code": N}}``
     """
-    status_code, error_type = _EXCEPTION_MAP.get(
-        type(exc), (500, "internal_error")
-    )
+    status_code, error_type = _EXCEPTION_MAP.get(type(exc), (500, "internal_error"))
 
     # Log severity based on status code
     if status_code >= 500:

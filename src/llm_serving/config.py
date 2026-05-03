@@ -31,6 +31,9 @@ class Settings(BaseSettings):
         max_queue_depth: Max queue depth before load shedding triggers (503).
         circuit_breaker_failure_threshold: Consecutive failures before circuit trips.
         circuit_breaker_recovery_timeout_s: Seconds before OPEN → HALF_OPEN probe.
+        max_batch_size: Max requests per inference batch.
+        max_batch_wait_ms: Max milliseconds to wait before flushing a partial batch.
+        batching_enabled: Whether to enable dynamic batching.
     """
 
     app_env: str = "development"
@@ -48,6 +51,9 @@ class Settings(BaseSettings):
     max_queue_depth: int = 100
     circuit_breaker_failure_threshold: int = 5
     circuit_breaker_recovery_timeout_s: float = 30.0
+    max_batch_size: int = 8
+    max_batch_wait_ms: int = 50
+    batching_enabled: bool = True
 
     model_config = {
         "env_prefix": "LLM_",

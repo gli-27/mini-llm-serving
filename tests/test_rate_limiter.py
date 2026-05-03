@@ -26,17 +26,13 @@ class TestTokenBucketRateLimiter:
 
     def test_init_stores_config(self, mock_redis_for_limiter: MagicMock) -> None:
         """Limiter should store bucket_size and refill_rate."""
-        limiter = TokenBucketRateLimiter(
-            mock_redis_for_limiter, bucket_size=20, refill_rate=5.0
-        )
+        limiter = TokenBucketRateLimiter(mock_redis_for_limiter, bucket_size=20, refill_rate=5.0)
         assert limiter._bucket_size == 20
         assert limiter._refill_rate == 5.0
 
     def test_bucket_key_format(self, mock_redis_for_limiter: MagicMock) -> None:
         """_bucket_key should return a namespaced key."""
-        limiter = TokenBucketRateLimiter(
-            mock_redis_for_limiter, key_prefix="rl"
-        )
+        limiter = TokenBucketRateLimiter(mock_redis_for_limiter, key_prefix="rl")
         assert limiter._bucket_key("user-123") == "rl:user-123"
 
     async def test_try_consume_allowed(self, mock_redis_for_limiter: MagicMock) -> None:
@@ -44,9 +40,7 @@ class TestTokenBucketRateLimiter:
         # Lua returns [allowed=1, remaining=9, retry_after_ms=0]
         mock_redis_for_limiter._mock_redis.evalsha = AsyncMock(return_value=[1, 9, 0])
 
-        limiter = TokenBucketRateLimiter(
-            mock_redis_for_limiter, bucket_size=10, refill_rate=2.0
-        )
+        limiter = TokenBucketRateLimiter(mock_redis_for_limiter, bucket_size=10, refill_rate=2.0)
         allowed, info = await limiter.try_consume("user-123")
 
         assert allowed is True
@@ -59,9 +53,7 @@ class TestTokenBucketRateLimiter:
         # Lua returns [allowed=0, remaining=0, retry_after_ms=500]
         mock_redis_for_limiter._mock_redis.evalsha = AsyncMock(return_value=[0, 0, 500])
 
-        limiter = TokenBucketRateLimiter(
-            mock_redis_for_limiter, bucket_size=10, refill_rate=2.0
-        )
+        limiter = TokenBucketRateLimiter(mock_redis_for_limiter, bucket_size=10, refill_rate=2.0)
         allowed, info = await limiter.try_consume("user-123")
 
         assert allowed is False
@@ -69,15 +61,11 @@ class TestTokenBucketRateLimiter:
         assert info["limit"] == 10.0
         assert info["retry_after"] == 0.5  # 500ms = 0.5s
 
-    async def test_try_consume_loads_script_once(
-        self, mock_redis_for_limiter: MagicMock
-    ) -> None:
+    async def test_try_consume_loads_script_once(self, mock_redis_for_limiter: MagicMock) -> None:
         """The Lua script should be loaded only once (cached SHA)."""
         mock_redis_for_limiter._mock_redis.evalsha = AsyncMock(return_value=[1, 8, 0])
 
-        limiter = TokenBucketRateLimiter(
-            mock_redis_for_limiter, bucket_size=10, refill_rate=2.0
-        )
+        limiter = TokenBucketRateLimiter(mock_redis_for_limiter, bucket_size=10, refill_rate=2.0)
 
         await limiter.try_consume("user-1")
         await limiter.try_consume("user-2")
@@ -88,9 +76,7 @@ class TestTokenBucketRateLimiter:
         # evalsha called 3 times
         assert mock_redis_for_limiter._mock_redis.evalsha.await_count == 3
 
-    async def test_try_consume_passes_correct_args(
-        self, mock_redis_for_limiter: MagicMock
-    ) -> None:
+    async def test_try_consume_passes_correct_args(self, mock_redis_for_limiter: MagicMock) -> None:
         """evalsha should be called with the correct key and arguments."""
         mock_redis_for_limiter._mock_redis.evalsha = AsyncMock(return_value=[1, 9, 0])
 
@@ -120,9 +106,7 @@ class TestTokenBucketRateLimiter:
             side_effect=ConnectionError("Redis down")
         )
 
-        limiter = TokenBucketRateLimiter(
-            mock_redis_for_limiter, bucket_size=10, refill_rate=2.0
-        )
+        limiter = TokenBucketRateLimiter(mock_redis_for_limiter, bucket_size=10, refill_rate=2.0)
         allowed, info = await limiter.try_consume("user-123")
 
         assert allowed is True
@@ -134,13 +118,9 @@ class TestTokenBucketRateLimiter:
         self, mock_redis_for_limiter: MagicMock
     ) -> None:
         """On evalsha failure, try_consume should allow the request (fail open)."""
-        mock_redis_for_limiter._mock_redis.evalsha = AsyncMock(
-            side_effect=Exception("timeout")
-        )
+        mock_redis_for_limiter._mock_redis.evalsha = AsyncMock(side_effect=Exception("timeout"))
 
-        limiter = TokenBucketRateLimiter(
-            mock_redis_for_limiter, bucket_size=5, refill_rate=1.0
-        )
+        limiter = TokenBucketRateLimiter(mock_redis_for_limiter, bucket_size=5, refill_rate=1.0)
         allowed, info = await limiter.try_consume("user-456")
 
         assert allowed is True
@@ -154,9 +134,7 @@ class TestTokenBucketRateLimiter:
         """Each API key should have an independent bucket (different Redis key)."""
         mock_redis_for_limiter._mock_redis.evalsha = AsyncMock(return_value=[1, 9, 0])
 
-        limiter = TokenBucketRateLimiter(
-            mock_redis_for_limiter, bucket_size=10, refill_rate=2.0
-        )
+        limiter = TokenBucketRateLimiter(mock_redis_for_limiter, bucket_size=10, refill_rate=2.0)
 
         await limiter.try_consume("user-a")
         await limiter.try_consume("user-b")

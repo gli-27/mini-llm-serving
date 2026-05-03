@@ -114,12 +114,14 @@ class PriorityQueue:
         score = self._compute_score(priority, now)
 
         # Store request_id + payload as the member
-        member = json.dumps({
-            "request_id": request_id,
-            "priority": priority,
-            "enqueued_at": now,
-            **payload,
-        })
+        member = json.dumps(
+            {
+                "request_id": request_id,
+                "priority": priority,
+                "enqueued_at": now,
+                **payload,
+            }
+        )
 
         await redis.zadd(self._queue_key, {member: score})
         depth = await redis.zcard(self._queue_key)
