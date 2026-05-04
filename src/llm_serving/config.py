@@ -34,6 +34,10 @@ class Settings(BaseSettings):
         max_batch_size: Max requests per inference batch.
         max_batch_wait_ms: Max milliseconds to wait before flushing a partial batch.
         batching_enabled: Whether to enable dynamic batching.
+        kv_cache_max_memory_mb: Max memory (MB) for KV prefix cache.
+        kv_cache_max_entries: Max number of cached prefix entries.
+        kv_cache_enabled: Whether to enable prefix KV caching.
+        kv_cache_prefix_tokens: Tokens to cache as prefix (0=auto-detect).
     """
 
     app_env: str = "development"
@@ -54,6 +58,10 @@ class Settings(BaseSettings):
     max_batch_size: int = 8
     max_batch_wait_ms: int = 50
     batching_enabled: bool = True
+    kv_cache_max_memory_mb: int = 512
+    kv_cache_max_entries: int = 100
+    kv_cache_enabled: bool = True
+    kv_cache_prefix_tokens: int = 0
 
     model_config = {
         "env_prefix": "LLM_",

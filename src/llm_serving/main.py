@@ -11,6 +11,7 @@ from llm_serving.api.router import router
 from llm_serving.config import get_settings
 from llm_serving.core.batcher import BatchScheduler
 from llm_serving.core.circuit_breaker import CircuitBreaker
+from llm_serving.core.kv_cache import KVCacheManager
 from llm_serving.core.worker import InferenceWorkerPool
 from llm_serving.logging import get_logger, setup_logging
 from llm_serving.middleware.error_handler import global_exception_handler
@@ -79,6 +80,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         recovery_timeout_s=settings.circuit_breaker_recovery_timeout_s,
     )
 
+    # Create KV cache manager (if enabled)
+    kv_cache_manager: KVCacheManager | None = None
+    if settings.kv_cache_enabled:
+        kv_cache_manager = KVCacheManager(
+            max_memory_bytes=settings.kv_cache_max_memory_mb * 1024 * 1024,
+            max_entries=settings.kv_cache_max_entries,
+        )
+        logger.info(
+            "KV cache enabled",
+            max_memory_mb=settings.kv_cache_max_memory_mb,
+            max_entries=settings.kv_cache_max_entries,
+        )
+
     # Create batch scheduler (if enabled)
     batch_scheduler: BatchScheduler | None = None
     if settings.batching_enabled:
@@ -113,6 +127,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.priority_queue = priority_queue
     app.state.worker_pool = worker_pool
     app.state.circuit_breaker = circuit_breaker
+    app.state.kv_cache_manager = kv_cache_manager
     app.state.settings = settings
 
     yield
@@ -120,6 +135,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await worker_pool.stop()
     if batch_scheduler:
         await batch_scheduler.stop()
+    if kv_cache_manager:
+        kv_cache_manager.clear()
     await redis_client.close()
     inference_executor.shutdown(wait=False)
     logger.info("Shutting down LLM Serving Platform")

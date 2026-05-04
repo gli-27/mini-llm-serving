@@ -24,6 +24,7 @@ def generate_stream(
     max_new_tokens: int,
     temperature: float = 0.7,
     seed: int | None = None,
+    past_key_values: tuple | None = None,
 ) -> Generator[str, None, None]:
     """Generate text token-by-token as a streaming generator.
 
@@ -40,6 +41,8 @@ def generate_stream(
         max_new_tokens: Maximum number of new tokens to generate.
         temperature: Sampling temperature. Higher = more random, lower = more deterministic.
         seed: Optional random seed for reproducible generation.
+        past_key_values: Optional cached KV states from a prefix. If provided,
+            the prompt should only contain the suffix tokens (prefix was cached).
 
     Yields:
         Individual token strings as they are generated.
@@ -76,7 +79,7 @@ def generate_stream(
     )
 
     # Generation kwargs for the background thread
-    generation_kwargs = {
+    generation_kwargs: dict[str, object] = {
         "input_ids": input_ids,
         "max_new_tokens": max_new_tokens,
         "do_sample": True,
@@ -84,6 +87,11 @@ def generate_stream(
         "pad_token_id": tokenizer.pad_token_id,
         "streamer": streamer,
     }
+
+    # If past_key_values provided (from KV cache), skip prefix recomputation
+    if past_key_values is not None:
+        generation_kwargs["past_key_values"] = past_key_values
+        generation_kwargs["use_cache"] = True
 
     # Mutable container to capture exceptions from the background thread.
     # A list works because threads share the same process memory — the

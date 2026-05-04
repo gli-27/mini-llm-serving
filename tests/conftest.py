@@ -171,6 +171,7 @@ def app(
     fastapi_app.state.priority_queue = mock_priority_queue
     fastapi_app.state.worker_pool = mock_worker_pool
     fastapi_app.state.circuit_breaker = mock_circuit_breaker
+    fastapi_app.state.kv_cache_manager = None  # Disabled in tests by default
     fastapi_app.state.settings = settings
 
     return fastapi_app

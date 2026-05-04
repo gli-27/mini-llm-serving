@@ -21,6 +21,7 @@ from llm_serving.api.schemas import (
 )
 from llm_serving.core.circuit_breaker import CircuitBreaker, CircuitState
 from llm_serving.core.inference import generate
+from llm_serving.core.kv_cache import KVCacheManager
 from llm_serving.core.streaming import generate_stream
 from llm_serving.core.worker import InferenceWorkerPool
 from llm_serving.exceptions import ModelNotLoadedError
@@ -502,3 +503,19 @@ async def list_models(
             )
         ]
     )
+
+
+@router.get("/v1/cache/stats")
+async def cache_stats(request: Request) -> dict[str, int | str]:
+    """Return KV cache statistics.
+
+    Returns hit/miss/eviction counts, current memory usage,
+    and number of cached entries. Returns empty stats if
+    KV cache is disabled.
+    """
+    kv_cache_manager: KVCacheManager | None = request.app.state.kv_cache_manager
+    if kv_cache_manager is None:
+        return {"status": "disabled"}
+    stats = kv_cache_manager.stats()
+    stats["status"] = "enabled"
+    return stats

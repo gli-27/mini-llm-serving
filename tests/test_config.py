@@ -30,6 +30,10 @@ class TestSettings:
         assert settings.max_batch_size == 8
         assert settings.max_batch_wait_ms == 50
         assert settings.batching_enabled is True
+        assert settings.kv_cache_max_memory_mb == 512
+        assert settings.kv_cache_max_entries == 100
+        assert settings.kv_cache_enabled is True
+        assert settings.kv_cache_prefix_tokens == 0
 
     def test_override_via_constructor(self) -> None:
         """Settings should accept overrides via constructor kwargs."""

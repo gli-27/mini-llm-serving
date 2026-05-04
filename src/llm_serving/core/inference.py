@@ -8,11 +8,18 @@ designed to be called via ``run_in_executor()`` from the async router
 so they don't block the event loop.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import torch
 
 from llm_serving.exceptions import ModelNotLoadedError
 from llm_serving.logging import get_logger
 from llm_serving.models.loader import ModelManager
+
+if TYPE_CHECKING:
+    from llm_serving.core.kv_cache import KVCacheManager
 
 logger = get_logger(__name__)
 
@@ -86,8 +93,8 @@ def generate(
 
 def generate_batch(
     model_manager: ModelManager,
-    input_ids: "torch.Tensor",
-    attention_mask: "torch.Tensor",
+    input_ids: torch.Tensor,
+    attention_mask: torch.Tensor,
     prompt_lengths: list[int],
     max_new_tokens: int,
     temperature: float = 0.7,
@@ -164,3 +171,144 @@ def generate_batch(
     )
 
     return results
+
+
+def generate_with_cache(
+    model_manager: ModelManager,
+    prompt: str,
+    max_new_tokens: int,
+    temperature: float = 0.7,
+    seed: int | None = None,
+    kv_cache_manager: KVCacheManager | None = None,
+    cache_prefix_tokens: int | None = None,
+) -> tuple[str, int, int]:
+    """Generate text with optional KV cache reuse for prefix.
+
+    Flow:
+    1. Tokenize full prompt.
+    2. If ``cache_prefix_tokens`` is set, split into prefix + suffix.
+    3. Cache hit → use past_key_values, only forward suffix tokens.
+    4. Cache miss → forward full prompt with ``use_cache=True``, store prefix KV.
+    5. Generate remaining tokens from the combined state.
+
+    Falls back to standard ``generate()`` if cache is disabled or
+    ``cache_prefix_tokens`` is not specified.
+
+    Args:
+        model_manager: The ModelManager holding the loaded model and tokenizer.
+        prompt: The input text prompt.
+        max_new_tokens: Maximum number of new tokens to generate.
+        temperature: Sampling temperature.
+        seed: Optional random seed for reproducible generation.
+        kv_cache_manager: Optional KVCacheManager for prefix caching.
+        cache_prefix_tokens: Number of tokens to treat as cacheable prefix.
+            If None, caching is skipped (full generate).
+
+    Returns:
+        A tuple of (generated_text, prompt_token_count, completion_token_count).
+
+    Raises:
+        ModelNotLoadedError: If the model has not been loaded yet.
+    """
+    # Fall back to standard generate if no cache or no prefix specified
+    if kv_cache_manager is None or cache_prefix_tokens is None:
+        return generate(
+            model_manager=model_manager,
+            prompt=prompt,
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            seed=seed,
+        )
+
+    if not model_manager.is_loaded:
+        raise ModelNotLoadedError(
+            "Model is not loaded. Call load_model() before generate_with_cache()."
+        )
+
+    assert model_manager.tokenizer is not None
+    assert model_manager.model is not None
+
+    tokenizer = model_manager.tokenizer
+    model = model_manager.model
+    device = model_manager.settings.device
+
+    # Tokenize full prompt
+    inputs = tokenizer(prompt, return_tensors="pt")
+    input_ids = inputs["input_ids"].to(device)
+    prompt_tokens = input_ids.shape[1]
+
+    if seed is not None:
+        torch.manual_seed(seed)
+
+    # Split into prefix and suffix
+    prefix_len = min(cache_prefix_tokens, prompt_tokens)
+    prefix_ids = input_ids[0, :prefix_len].tolist()
+
+    # Try cache lookup
+    cached_entry = kv_cache_manager.get(prefix_ids)
+
+    with torch.no_grad():
+        if cached_entry is not None:
+            # Cache HIT: forward only the suffix tokens with cached KV
+            suffix_ids = input_ids[:, prefix_len:]
+            logger.info(
+                "KV cache hit: forwarding %d suffix tokens (skipped %d prefix)",
+                suffix_ids.shape[1],
+                prefix_len,
+            )
+
+            output_ids = model.generate(
+                suffix_ids,
+                past_key_values=cached_entry.past_key_values,
+                max_new_tokens=max_new_tokens,
+                do_sample=True,
+                temperature=temperature,
+                pad_token_id=tokenizer.pad_token_id,
+                use_cache=True,
+            )
+
+            # Output includes suffix + generated (not prefix)
+            generated_ids = output_ids[0, suffix_ids.shape[1] :]
+        else:
+            # Cache MISS: compute prefix KV, cache it, then generate
+            # using the cached KV + suffix (avoids redundant recomputation)
+            logger.info(
+                "KV cache miss: computing prefix KV for %d tokens",
+                prefix_len,
+            )
+
+            # Step 1: Forward prefix to get its KV state
+            prefix_input = input_ids[:, :prefix_len]
+            prefix_output = model(prefix_input, use_cache=True)
+            prefix_kv = prefix_output.past_key_values
+
+            # Step 2: Cache the prefix KV for future reuse
+            kv_cache_manager.put(prefix_ids, prefix_kv)
+
+            # Step 3: Generate using cached prefix KV + suffix tokens
+            # This avoids recomputing the prefix — we already have its KV
+            suffix_ids = input_ids[:, prefix_len:]
+            output_ids = model.generate(
+                suffix_ids,
+                past_key_values=prefix_kv,
+                max_new_tokens=max_new_tokens,
+                do_sample=True,
+                temperature=temperature,
+                pad_token_id=tokenizer.pad_token_id,
+                use_cache=True,
+            )
+
+            # Output includes suffix + generated (not prefix)
+            generated_ids = output_ids[0, suffix_ids.shape[1] :]
+
+    generated_text = tokenizer.decode(generated_ids, skip_special_tokens=True)
+    completion_tokens = len(generated_ids)
+
+    logger.info(
+        "Generated %d tokens from %d prompt tokens (cache=%s)",
+        completion_tokens,
+        prompt_tokens,
+        "hit" if cached_entry else "miss",
+    )
+
+    return generated_text, prompt_tokens, completion_tokens
