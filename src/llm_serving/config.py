@@ -38,6 +38,10 @@ class Settings(BaseSettings):
         kv_cache_max_entries: Max number of cached prefix entries.
         kv_cache_enabled: Whether to enable prefix KV caching.
         kv_cache_prefix_tokens: Tokens to cache as prefix (0=auto-detect).
+        spec_enabled: Whether speculative decoding is enabled.
+        spec_draft_model_name: HuggingFace model ID for the draft model.
+        spec_num_draft_tokens: Number of draft tokens per speculation step.
+        spec_temperature: Temperature for speculative decoding.
     """
 
     app_env: str = "development"
@@ -62,6 +66,10 @@ class Settings(BaseSettings):
     kv_cache_max_entries: int = 100
     kv_cache_enabled: bool = True
     kv_cache_prefix_tokens: int = 0
+    spec_enabled: bool = False
+    spec_draft_model_name: str = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+    spec_num_draft_tokens: int = 5
+    spec_temperature: float = 1.0
 
     model_config = {
         "env_prefix": "LLM_",

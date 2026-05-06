@@ -21,6 +21,10 @@ from llm_serving.models.loader import ModelManager
 from llm_serving.queue.priority_queue import PriorityQueue
 from llm_serving.queue.rate_limiter import TokenBucketRateLimiter
 from llm_serving.queue.redis_client import RedisClient
+from llm_serving.speculative.config import SpeculativeConfig
+from llm_serving.speculative.draft_runner import DraftModelRunner
+from llm_serving.speculative.orchestrator import SpeculativeOrchestrator
+from llm_serving.speculative.verifier import TokenVerifier
 
 logger = get_logger(__name__)
 
@@ -126,8 +130,35 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.rate_limiter = rate_limiter
     app.state.priority_queue = priority_queue
     app.state.worker_pool = worker_pool
+    # Create speculative decoding orchestrator (if enabled)
+    spec_orchestrator: SpeculativeOrchestrator | None = None
+    if settings.spec_enabled:
+        spec_config = SpeculativeConfig(
+            enabled=True,
+            draft_model_name=settings.spec_draft_model_name,
+            num_draft_tokens=settings.spec_num_draft_tokens,
+            temperature=settings.spec_temperature,
+        )
+        draft_runner = DraftModelRunner(
+            model_name=settings.spec_draft_model_name,
+            device=settings.device,
+        )
+        draft_runner.load()
+        verifier = TokenVerifier(target_model=model_manager.model)
+        spec_orchestrator = SpeculativeOrchestrator(
+            draft_runner=draft_runner,
+            verifier=verifier,
+            config=spec_config,
+        )
+        logger.info(
+            "Speculative decoding enabled",
+            draft_model=settings.spec_draft_model_name,
+            num_draft_tokens=settings.spec_num_draft_tokens,
+        )
+
     app.state.circuit_breaker = circuit_breaker
     app.state.kv_cache_manager = kv_cache_manager
+    app.state.spec_orchestrator = spec_orchestrator
     app.state.settings = settings
 
     yield

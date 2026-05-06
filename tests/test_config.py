@@ -34,6 +34,10 @@ class TestSettings:
         assert settings.kv_cache_max_entries == 100
         assert settings.kv_cache_enabled is True
         assert settings.kv_cache_prefix_tokens == 0
+        assert settings.spec_enabled is False
+        assert settings.spec_draft_model_name == "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+        assert settings.spec_num_draft_tokens == 5
+        assert settings.spec_temperature == 1.0
 
     def test_override_via_constructor(self) -> None:
         """Settings should accept overrides via constructor kwargs."""
