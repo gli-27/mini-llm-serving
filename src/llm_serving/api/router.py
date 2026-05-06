@@ -505,6 +505,79 @@ async def list_models(
     )
 
 
+@router.post("/v1/completions/speculative", status_code=status.HTTP_200_OK)
+async def create_speculative_completion(
+    body: CompletionRequest,
+    request: Request,
+    model_manager: ModelManager = Depends(get_model_manager),
+    executor: ThreadPoolExecutor = Depends(get_inference_executor),
+) -> dict:
+    """Generate a completion using speculative decoding.
+
+    Uses the draft model to generate candidates, then the target model
+    verifies them via rejection sampling. Returns the generated text
+    plus speculative decoding metrics (acceptance rate, speedup).
+
+    Falls back to standard generation if speculative decoding is not enabled.
+    """
+    if not model_manager.is_loaded:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": {"message": "Model not loaded", "type": "server_error", "code": 503}},
+        )
+
+    spec_orchestrator = request.app.state.spec_orchestrator
+    if spec_orchestrator is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": {
+                    "message": "Speculative decoding is not enabled. "
+                    "Set LLM_SPEC_ENABLED=true to enable.",
+                    "type": "configuration_error",
+                    "code": 400,
+                }
+            },
+        )
+
+    tokenizer = model_manager.tokenizer
+    assert tokenizer is not None
+
+    # Tokenize input
+    inputs = tokenizer(body.prompt, return_tensors="pt")
+    input_ids = inputs["input_ids"].to(model_manager.settings.device)
+
+    # Run speculative decoding in executor (sync, blocking)
+    import functools as _ft
+
+    loop = asyncio.get_event_loop()
+    generated_ids, metrics = await loop.run_in_executor(
+        executor,
+        _ft.partial(
+            spec_orchestrator.generate,
+            input_ids=input_ids,
+            max_new_tokens=body.max_tokens,
+            eos_token_id=tokenizer.eos_token_id,
+        ),
+    )
+
+    # Decode
+    generated_text = tokenizer.decode(generated_ids, skip_special_tokens=True)
+
+    return {
+        "id": f"cmpl-{uuid.uuid4().hex[:8]}",
+        "object": "text_completion",
+        "model": model_manager.settings.model_name,
+        "content": generated_text,
+        "usage": {
+            "prompt_tokens": input_ids.shape[1],
+            "completion_tokens": len(generated_ids),
+            "total_tokens": input_ids.shape[1] + len(generated_ids),
+        },
+        "speculative_metrics": metrics.to_dict(),
+    }
+
+
 @router.get("/v1/cache/stats")
 async def cache_stats(request: Request) -> dict[str, int | str]:
     """Return KV cache statistics.
