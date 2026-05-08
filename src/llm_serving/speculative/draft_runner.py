@@ -84,9 +84,7 @@ class DraftModelRunner:
         next_input = input_ids  # First step: full input
 
         for _step in range(k):
-            outputs = self._model(
-                next_input, past_key_values=past_kv, use_cache=True
-            )
+            outputs = self._model(next_input, past_key_values=past_kv, use_cache=True)
             past_kv = outputs.past_key_values
 
             # Get logits for the last position

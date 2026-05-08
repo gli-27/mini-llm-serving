@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from llm_serving.api.memory_router import memory_router
 from llm_serving.api.router import router
 from llm_serving.config import get_settings
 from llm_serving.core.batcher import BatchScheduler
@@ -18,6 +19,9 @@ from llm_serving.middleware.error_handler import global_exception_handler
 from llm_serving.middleware.load_shedder import LoadShedderMiddleware
 from llm_serving.middleware.rate_limit import RateLimitMiddleware
 from llm_serving.models.loader import ModelManager
+from llm_serving.profiler.config import MemoryProfilerConfig
+from llm_serving.profiler.tracker import MemoryTracker
+from llm_serving.profiler.watermark import WatermarkMonitor
 from llm_serving.queue.priority_queue import PriorityQueue
 from llm_serving.queue.rate_limiter import TokenBucketRateLimiter
 from llm_serving.queue.redis_client import RedisClient
@@ -156,9 +160,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             num_draft_tokens=settings.spec_num_draft_tokens,
         )
 
+    # Create memory profiler
+    mem_config = MemoryProfilerConfig()
+    memory_tracker = MemoryTracker(mem_config)
+    watermark_monitor = WatermarkMonitor(
+        tracker=memory_tracker,
+        high_watermark_ratio=mem_config.high_watermark_ratio,
+        critical_watermark_ratio=mem_config.critical_watermark_ratio,
+    )
+
     app.state.circuit_breaker = circuit_breaker
     app.state.kv_cache_manager = kv_cache_manager
     app.state.spec_orchestrator = spec_orchestrator
+    app.state.memory_tracker = memory_tracker
+    app.state.watermark_monitor = watermark_monitor
     app.state.settings = settings
 
     yield
@@ -189,3 +204,4 @@ app.add_middleware(RateLimitMiddleware)
 app.add_middleware(LoadShedderMiddleware)
 
 app.include_router(router)
+app.include_router(memory_router)
