@@ -20,6 +20,7 @@ from llm_serving.middleware.load_shedder import LoadShedderMiddleware
 from llm_serving.middleware.rate_limit import RateLimitMiddleware
 from llm_serving.models.loader import ModelManager
 from llm_serving.profiler.config import MemoryProfilerConfig
+from llm_serving.profiler.pressure import MemoryPressureHandler
 from llm_serving.profiler.tracker import MemoryTracker
 from llm_serving.profiler.watermark import WatermarkMonitor
 from llm_serving.queue.priority_queue import PriorityQueue
@@ -168,12 +169,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         high_watermark_ratio=mem_config.high_watermark_ratio,
         critical_watermark_ratio=mem_config.critical_watermark_ratio,
     )
+    pressure_handler = MemoryPressureHandler(
+        monitor=watermark_monitor,
+        kv_cache=kv_cache_manager,
+    )
 
     app.state.circuit_breaker = circuit_breaker
     app.state.kv_cache_manager = kv_cache_manager
     app.state.spec_orchestrator = spec_orchestrator
     app.state.memory_tracker = memory_tracker
     app.state.watermark_monitor = watermark_monitor
+    app.state.pressure_handler = pressure_handler
     app.state.settings = settings
 
     yield

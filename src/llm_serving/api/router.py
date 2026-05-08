@@ -192,6 +192,21 @@ async def create_completion(
             detail={"error": {"message": "Model not loaded", "type": "server_error", "code": 503}},
         )
 
+    # Check memory pressure — reject if CRITICAL
+    pressure_handler = getattr(request.app.state, "pressure_handler", None)
+    if pressure_handler and not pressure_handler.should_admit():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": {
+                    "message": "Memory pressure too high — server overloaded",
+                    "type": "memory_pressure",
+                    "code": 503,
+                }
+            },
+            headers={"Retry-After": "5"},
+        )
+
     # Streaming bypasses the worker pool — uses direct executor dispatch
     # (streaming requires a token-by-token generator, not a Future-based result)
     if body.stream:
