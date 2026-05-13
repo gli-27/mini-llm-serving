@@ -26,6 +26,7 @@ from llm_serving.core.kv_cache import KVCacheManager
 from llm_serving.core.streaming import generate_stream
 from llm_serving.core.worker import InferenceWorkerPool
 from llm_serving.exceptions import ModelNotLoadedError
+from llm_serving.lifecycle import LifecycleManager
 from llm_serving.logging import get_logger
 from llm_serving.models.loader import ModelManager
 from llm_serving.queue.priority_queue import PriorityQueue
@@ -108,6 +109,18 @@ def get_circuit_breaker(request: Request) -> CircuitBreaker:
     return request.app.state.circuit_breaker  # type: ignore[no-any-return]
 
 
+def get_lifecycle_manager(request: Request) -> LifecycleManager:
+    """Dependency that retrieves the LifecycleManager from app state.
+
+    Args:
+        request: The incoming FastAPI request.
+
+    Returns:
+        The shared LifecycleManager instance.
+    """
+    return request.app.state.lifecycle_manager  # type: ignore[no-any-return]
+
+
 @router.get("/health", response_model=HealthResponse)
 async def health_check(
     model_manager: ModelManager = Depends(get_model_manager),
@@ -156,18 +169,28 @@ async def health_check(
 @router.get("/ready", response_model=ReadyResponse)
 async def readiness_check(
     model_manager: ModelManager = Depends(get_model_manager),
+    lifecycle_manager: LifecycleManager = Depends(get_lifecycle_manager),
 ) -> ReadyResponse:
     """Readiness probe for ALB/K8s — is this instance ready to accept traffic?
 
-    Separate from /health (liveness). /ready checks only whether the model
-    is loaded and we're not in the process of shutting down. ALB uses this
-    to decide whether to route requests to this task.
+    Separate from /health (liveness). /ready checks:
+    1. Model is loaded (startup complete)
+    2. Not shutting down (graceful shutdown hasn't started)
 
     Interview: "Liveness (/health) tells the orchestrator 'restart me if I'm
     deadlocked'. Readiness (/ready) tells the load balancer 'don't send me
-    traffic yet — my model is still loading'. During rolling deploys, new tasks
-    return 503 on /ready until model loading completes (~30-90s)."
+    traffic yet — my model is still loading'. During graceful shutdown, /ready
+    returns 503 so ALB stops routing new requests while in-flight drain."
     """
+    if lifecycle_manager.is_shutting_down:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=ReadyResponse(
+                status="not_ready",
+                reason="Shutting down",
+            ).model_dump(),
+        )
+
     if not model_manager.is_loaded:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

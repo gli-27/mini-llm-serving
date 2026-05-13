@@ -14,6 +14,7 @@ from llm_serving.core.batcher import BatchScheduler
 from llm_serving.core.circuit_breaker import CircuitBreaker
 from llm_serving.core.kv_cache import KVCacheManager
 from llm_serving.core.worker import InferenceWorkerPool
+from llm_serving.lifecycle import LifecycleManager
 from llm_serving.logging import get_logger, setup_logging
 from llm_serving.middleware.error_handler import global_exception_handler
 from llm_serving.middleware.load_shedder import LoadShedderMiddleware
@@ -174,16 +175,23 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         kv_cache=kv_cache_manager,
     )
 
+    # Lifecycle manager — graceful shutdown with in-flight request draining
+    lifecycle_mgr = LifecycleManager(drain_timeout=30.0)
+    lifecycle_mgr.register_signals()
+
     app.state.circuit_breaker = circuit_breaker
     app.state.kv_cache_manager = kv_cache_manager
     app.state.spec_orchestrator = spec_orchestrator
     app.state.memory_tracker = memory_tracker
     app.state.watermark_monitor = watermark_monitor
     app.state.pressure_handler = pressure_handler
+    app.state.lifecycle_manager = lifecycle_mgr
     app.state.settings = settings
 
     yield
 
+    # Graceful shutdown: drain in-flight requests before stopping workers
+    await lifecycle_mgr.wait_for_drain()
     await worker_pool.stop()
     if batch_scheduler:
         await batch_scheduler.stop()
