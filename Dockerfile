@@ -24,7 +24,9 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 COPY --from=builder /app/src /app/src
 
 # Non-root user
-RUN useradd --create-home appuser
+RUN useradd --create-home appuser \
+    && mkdir -p /home/appuser/.cache/huggingface/hub \
+    && chown -R appuser:appuser /home/appuser/.cache
 USER appuser
 
 ENV PYTHONPATH=/app/src
