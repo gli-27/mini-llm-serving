@@ -100,6 +100,21 @@ class HealthResponse(BaseModel):
     queue_depth: int = 0
 
 
+class ReadyResponse(BaseModel):
+    """Response body for the /ready readiness probe.
+
+    Separate from /health (liveness). Readiness tells the load balancer
+    whether this instance can accept traffic.
+
+    Attributes:
+        status: "ready" or "not_ready".
+        reason: Explanation when not ready.
+    """
+
+    status: Literal["ready", "not_ready"]
+    reason: str | None = None
+
+
 class ModelInfo(BaseModel):
     """Information about a loaded model.
 

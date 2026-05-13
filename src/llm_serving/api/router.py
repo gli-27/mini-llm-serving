@@ -16,6 +16,7 @@ from llm_serving.api.schemas import (
     HealthResponse,
     ModelInfo,
     ModelsResponse,
+    ReadyResponse,
     StreamChunk,
     UsageInfo,
 )
@@ -150,6 +151,33 @@ async def health_check(
         )
 
     return response
+
+
+@router.get("/ready", response_model=ReadyResponse)
+async def readiness_check(
+    model_manager: ModelManager = Depends(get_model_manager),
+) -> ReadyResponse:
+    """Readiness probe for ALB/K8s — is this instance ready to accept traffic?
+
+    Separate from /health (liveness). /ready checks only whether the model
+    is loaded and we're not in the process of shutting down. ALB uses this
+    to decide whether to route requests to this task.
+
+    Interview: "Liveness (/health) tells the orchestrator 'restart me if I'm
+    deadlocked'. Readiness (/ready) tells the load balancer 'don't send me
+    traffic yet — my model is still loading'. During rolling deploys, new tasks
+    return 503 on /ready until model loading completes (~30-90s)."
+    """
+    if not model_manager.is_loaded:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=ReadyResponse(
+                status="not_ready",
+                reason="Model not loaded",
+            ).model_dump(),
+        )
+
+    return ReadyResponse(status="ready")
 
 
 @router.post("/v1/completions", response_model=None, status_code=status.HTTP_200_OK)
